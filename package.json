@@ -1,20 +1,39 @@
 {
-  "name": "webapp",
-  "type": "module",
+  "name": "sovereign-os-platform",
+  "version": "0.3.0-P3",
+  "private": true,
   "scripts": {
     "dev": "vite",
+    "dev:sandbox": "wrangler pages dev dist --ip 0.0.0.0 --port 3000",
+    "dev:d1": "wrangler pages dev dist --d1=sovereign-os-production --local --ip 0.0.0.0 --port 3000",
     "build": "vite build",
-    "preview": "wrangler pages dev",
-    "deploy": "npm run build && wrangler pages deploy",
-    "cf-typegen": "wrangler types --env-interface CloudflareBindings"
+    "preview": "wrangler pages dev dist",
+    "deploy": "npm run build && wrangler pages deploy dist",
+    "deploy:prod": "npm run build && wrangler pages deploy dist --project-name sovereign-os-platform",
+    "cf-typegen": "wrangler types --env-interface CloudflareBindings",
+    "clean-port": "fuser -k 3000/tcp 2>/dev/null || true",
+    "db:create": "wrangler d1 create sovereign-os-production",
+    "db:migrate:local": "wrangler d1 migrations apply sovereign-os-production --local",
+    "db:migrate:prod": "wrangler d1 migrations apply sovereign-os-production",
+    "db:console:local": "wrangler d1 execute sovereign-os-production --local",
+    "db:console:prod": "wrangler d1 execute sovereign-os-production",
+    "db:status:local": "wrangler d1 execute sovereign-os-production --local --command=\"SELECT name FROM sqlite_master WHERE type='table' ORDER BY name\"",
+    "db:reset:local": "rm -rf .wrangler/state/v3/d1 && npm run db:migrate:local",
+    "git:commit": "git add . && git commit -m",
+    "git:status": "git status",
+    "git:log": "git log --oneline",
+    "health:check": "curl -s http://localhost:3000/health | cat",
+    "status:check": "curl -s http://localhost:3000/status | cat",
+    "verify:build": "npm run build && echo 'BUILD OK'"
   },
   "dependencies": {
-    "hono": "^4.12.12"
+    "hono": "^4.6.3"
   },
   "devDependencies": {
-    "@hono/vite-build": "^1.2.0",
-    "@hono/vite-dev-server": "^0.18.2",
-    "vite": "^6.3.5",
-    "wrangler": "^4.4.0"
+    "@cloudflare/workers-types": "^4.20260416.2",
+    "@hono/vite-cloudflare-pages": "^0.4.3",
+    "typescript": "^5.9.3",
+    "vite": "^5.4.8",
+    "wrangler": "^3.78.0"
   }
 }

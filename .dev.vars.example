@@ -1,0 +1,21 @@
+# ============================================================
+# SOVEREIGN OS PLATFORM — LOCAL DEVELOPMENT SECRETS TEMPLATE
+# ============================================================
+# Copy this file to .dev.vars for local development:
+#   cp .dev.vars.example .dev.vars
+#
+# NEVER commit .dev.vars to git.
+# .dev.vars is in .gitignore — it is safe to create.
+#
+# For production, set secrets via wrangler:
+#   npx wrangler pages secret put PLATFORM_API_KEY --project-name sovereign-os-platform
+# ============================================================
+
+# Platform API Key — used for authenticated mutations
+# Generate a strong random key for production:
+#   openssl rand -hex 32
+# For local dev/sandbox testing, any string works:
+PLATFORM_API_KEY=sovereign-test-key-p2-local
+
+# Optional: Add additional secrets here as platform grows
+# (never hardcode secret values in source code)
