@@ -1,6 +1,6 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — MAIN ENTRY (P4 — PRODUCT OPERATIONALIZATION)
-// Version: 0.4.0-P4
+// SOVEREIGN OS PLATFORM — MAIN ENTRY (P5 — MULTI-TENANT & AI-AUGMENTED OPERATIONS)
+// Version: 0.5.0-P5
 // Platform: Cloudflare Pages + Workers
 // Hono Framework — Edge-first
 // ============================================================
@@ -33,9 +33,16 @@ import { createLanesRoute } from './routes/lanes'
 import { createOnboardingRoute } from './routes/onboarding'
 import { createReportsRoute } from './routes/reports'
 
+// Route imports — P5 new surfaces
+import { createTenantsRoute } from './routes/tenants'
+import { createAiAssistRoute } from './routes/aiassist'
+import { createApiKeysRoute } from './routes/apikeys'
+import { createApiV1Route } from './routes/apiv1'
+
 export type Env = {
   DB?: D1Database
   PLATFORM_API_KEY?: string
+  OPENAI_API_KEY?: string   // P5: optional — graceful degradation if missing
 }
 
 const app = new Hono<{ Bindings: Env }>()
@@ -95,7 +102,19 @@ app.route('/onboarding', createOnboardingRoute())
 // P4: Reports
 app.route('/reports', createReportsRoute())
 
-// API routes — apply requireApiAuth middleware
+// P5: Multi-Tenant Registry
+app.route('/tenants', createTenantsRoute())
+
+// P5: AI Orchestration Assist
+app.route('/ai-assist', createAiAssistRoute())
+
+// P5: Public API Key Management
+app.route('/api-keys', createApiKeysRoute())
+
+// P5: Public API Gateway v1 (no auth middleware needed — handled internally)
+app.route('/api/v1', createApiV1Route())
+
+// Internal API routes — apply requireApiAuth middleware
 app.use('/api/*', async (c, next) => {
   const authMiddleware = requireApiAuth(c.env)
   return authMiddleware(c, next)
@@ -117,8 +136,8 @@ app.get('/health', (c) => {
   return c.json({
     status: 'ok',
     platform: 'Sovereign OS Platform',
-    version: '0.4.0-P4',
-    phase: 'P4 — Product Operationalization',
+    version: '0.5.0-P5',
+    phase: 'P5 — Multi-Tenant & AI-Augmented Operations',
     persistence: repo.isPersistent ? 'd1' : 'in-memory',
     auth_configured: !!c.env.PLATFORM_API_KEY,
     timestamp: new Date().toISOString(),
@@ -138,8 +157,8 @@ app.get('/status', async (c) => {
     return c.json({
       status: 'operational',
       platform: 'Sovereign OS Platform',
-      version: '0.4.0-P4',
-      phase: 'P4 — Product Operationalization',
+      version: '0.5.0-P5',
+      phase: 'P5 — Multi-Tenant & AI-Augmented Operations',
       persistence: repo.isPersistent ? 'd1-persistent' : 'in-memory-ephemeral',
       auth_configured: !!c.env.PLATFORM_API_KEY,
       surfaces: {
@@ -160,6 +179,10 @@ app.get('/status', async (c) => {
         lanes: 'active',       // P4
         onboarding: 'active',  // P4
         reports: 'active',     // P4
+        tenants: 'active',     // P5
+        ai_assist: 'active',   // P5
+        api_keys: 'active',    // P5
+        api_v1: 'active',      // P5
         api: 'active',
       },
       counts: {
@@ -175,7 +198,7 @@ app.get('/status', async (c) => {
     return c.json({
       status: 'degraded',
       platform: 'Sovereign OS Platform',
-      version: '0.2.1-P2.5',
+      version: '0.5.0-P5',
       error: 'Could not read platform state',
       persistence: 'unknown',
       timestamp: new Date().toISOString(),

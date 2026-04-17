@@ -22,7 +22,13 @@ import type {
   SessionContinuity, GovernanceBoundary, OperatorNote, RoleAssignment,
   PlatformRole, ContinuitySnapshotType, NoteType,
   ExecutionEntry, Connector, ExecutionStatus, ExecutionPriority,
-  ConnectorType, ConnectorStatus, ConnectorApproval, ConnectorRisk
+  ConnectorType, ConnectorStatus, ConnectorApproval, ConnectorRisk,
+  // P5 types
+  Tenant, TenantStatus, TenantApproval, TenantPlan, TenantIsolation,
+  WebhookDeliveryLog, WebhookDeliveryStatus,
+  AiAssistLog, AiAssistType,
+  PublicApiKey, ApiKeyScope,
+  MetricsSnapshot
 } from '../types'
 
 // ---- Helpers ----
@@ -56,6 +62,12 @@ const mem = {
   // P3 additions
   executionEntries: [] as ExecutionEntry[],
   connectors: [] as Connector[],
+  // P5 additions
+  tenants: [] as Tenant[],
+  webhookDeliveryLogs: [] as WebhookDeliveryLog[],
+  aiAssistLogs: [] as AiAssistLog[],
+  publicApiKeys: [] as PublicApiKey[],
+  metricsSnapshots: [] as MetricsSnapshot[],
   _seeded: false
 }
 
@@ -239,6 +251,24 @@ function ensureSeeded() {
       message: 'Canon candidate "Sovereign OS Platform — Operating Law" is awaiting review.',
       severity: 'info', object_type: 'canon_candidates', object_id: 'can-001',
       acknowledged: false, acknowledged_by: null, acknowledged_at: null, created_at: ts }
+  )
+
+  // P5: Seed default tenant
+  mem.tenants.push(
+    { id: 'tenant-default', slug: 'default', name: 'Sovereign OS Platform (Default)',
+      description: 'Default tenant. Holds all P0–P4 existing data for backward compatibility.',
+      status: 'active', approval_status: 'approved', approved_by: 'Founder',
+      approval_tier: 3, plan: 'enterprise', owner_email: 'founder@sovereign.os',
+      owner_name: 'Founder', isolation_mode: 'isolated',
+      notes: 'Root/default tenant. Cannot be deleted or suspended.',
+      created_at: ts, updated_at: ts },
+    { id: 'tenant-barberkas', slug: 'barberkas', name: 'BarberKas Product Lane',
+      description: 'Tenant for BarberKas product vertical.',
+      status: 'active', approval_status: 'approved', approved_by: 'Architect',
+      approval_tier: 2, plan: 'standard', owner_email: 'architect@barberkas.id',
+      owner_name: 'Architect', isolation_mode: 'shared',
+      notes: 'Example product vertical tenant.',
+      created_at: ts, updated_at: ts }
   )
 
   // P2: Seed initial continuity snapshot
@@ -517,6 +547,71 @@ function rowToCanonPromotion(r: Record<string, unknown>): CanonPromotion {
     acted_by_role: String(r.acted_by_role ?? ''),
     reason: String(r.reason ?? ''),
     acted_at: String(r.acted_at)
+  }
+}
+
+// ---- P5 row mappers ----
+function rowToTenant(r: Record<string, unknown>): Tenant {
+  return {
+    id: String(r.id), slug: String(r.slug ?? ''),
+    name: String(r.name ?? ''), description: String(r.description ?? ''),
+    status: r.status as TenantStatus,
+    approval_status: r.approval_status as TenantApproval,
+    approved_by: r.approved_by ? String(r.approved_by) : null,
+    approval_tier: Number(r.approval_tier ?? 2),
+    plan: r.plan as TenantPlan,
+    owner_email: String(r.owner_email ?? ''),
+    owner_name: String(r.owner_name ?? ''),
+    isolation_mode: r.isolation_mode as TenantIsolation,
+    notes: String(r.notes ?? ''),
+    created_at: String(r.created_at), updated_at: String(r.updated_at)
+  }
+}
+function rowToWebhookDeliveryLog(r: Record<string, unknown>): WebhookDeliveryLog {
+  return {
+    id: String(r.id), connector_id: String(r.connector_id ?? ''),
+    tenant_id: String(r.tenant_id ?? 'default'),
+    event_type: String(r.event_type ?? ''),
+    payload_hash: String(r.payload_hash ?? ''),
+    target_url_hint: String(r.target_url_hint ?? ''),
+    attempt: Number(r.attempt ?? 1),
+    status: r.status as WebhookDeliveryStatus,
+    http_status: r.http_status ? Number(r.http_status) : null,
+    response_hint: String(r.response_hint ?? ''),
+    error_message: String(r.error_message ?? ''),
+    delivered_at: r.delivered_at ? String(r.delivered_at) : null,
+    created_at: String(r.created_at)
+  }
+}
+function rowToAiAssistLog(r: Record<string, unknown>): AiAssistLog {
+  return {
+    id: String(r.id), tenant_id: String(r.tenant_id ?? 'default'),
+    session_id: r.session_id ? String(r.session_id) : null,
+    assist_type: r.assist_type as AiAssistType,
+    prompt_hash: String(r.prompt_hash ?? ''),
+    model_hint: String(r.model_hint ?? ''),
+    confidence_tag: String(r.confidence_tag ?? 'ai-generated'),
+    output_summary: String(r.output_summary ?? ''),
+    confirmed_by: r.confirmed_by ? String(r.confirmed_by) : null,
+    confirmed_at: r.confirmed_at ? String(r.confirmed_at) : null,
+    discarded: bool(r.discarded as number),
+    created_by: String(r.created_by ?? ''),
+    created_at: String(r.created_at)
+  }
+}
+function rowToPublicApiKey(r: Record<string, unknown>): PublicApiKey {
+  return {
+    id: String(r.id), label: String(r.label ?? ''),
+    tenant_id: String(r.tenant_id ?? 'default'),
+    key_hash: String(r.key_hash ?? ''),
+    role_scope: r.role_scope as ApiKeyScope,
+    rate_limit: Number(r.rate_limit ?? 100),
+    active: bool(r.active as number),
+    last_used_at: r.last_used_at ? String(r.last_used_at) : null,
+    request_count: Number(r.request_count ?? 0),
+    issued_by: String(r.issued_by ?? ''),
+    notes: String(r.notes ?? ''),
+    created_at: String(r.created_at)
   }
 }
 
@@ -974,7 +1069,122 @@ function createD1Repo(DB: D1Database) {
         unread_alerts: Number((alerts as Record<string,unknown>)?.cnt ?? 0),
         canon_candidates: Number((canonItems as Record<string,unknown>)?.cnt ?? 0),
       }
-    }
+    },
+
+    // ============================================================
+    // P5: Multi-Tenant
+    // ============================================================
+    async getTenants(): Promise<Tenant[]> {
+      const results = await DB.prepare('SELECT * FROM tenants ORDER BY created_at DESC').all()
+      return (results.results ?? []).map(r => rowToTenant(r as Record<string, unknown>))
+    },
+    async getTenant(id: string): Promise<Tenant | undefined> {
+      const r = await DB.prepare('SELECT * FROM tenants WHERE id=?').bind(id).first()
+      return r ? rowToTenant(r as Record<string, unknown>) : undefined
+    },
+    async getTenantBySlug(slug: string): Promise<Tenant | undefined> {
+      const r = await DB.prepare('SELECT * FROM tenants WHERE slug=?').bind(slug).first()
+      return r ? rowToTenant(r as Record<string, unknown>) : undefined
+    },
+    async createTenant(data: Omit<Tenant, 'id' | 'created_at' | 'updated_at'>): Promise<Tenant> {
+      const item: Tenant = { ...data, id: 'tenant-' + uid(), created_at: now(), updated_at: now() }
+      await DB.prepare('INSERT INTO tenants (id,slug,name,description,status,approval_status,approved_by,approval_tier,plan,owner_email,owner_name,isolation_mode,notes,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+        .bind(item.id, item.slug, item.name, item.description, item.status, item.approval_status, item.approved_by, item.approval_tier, item.plan, item.owner_email, item.owner_name, item.isolation_mode, item.notes, item.created_at, item.updated_at)
+        .run()
+      return item
+    },
+    async updateTenant(id: string, updates: Partial<Tenant>): Promise<void> {
+      const fields = Object.keys(updates).filter(k => k !== 'id' && k !== 'created_at')
+      if (fields.length === 0) return
+      const setClause = fields.map(f => `${f}=?`).join(',') + ',updated_at=?'
+      const values = [...fields.map(f => (updates as Record<string,unknown>)[f]), now(), id]
+      await DB.prepare(`UPDATE tenants SET ${setClause} WHERE id=?`).bind(...values).run()
+    },
+
+    // ============================================================
+    // P5: Webhook Delivery Log
+    // ============================================================
+    async getWebhookDeliveryLogs(connectorId?: string): Promise<WebhookDeliveryLog[]> {
+      const sql = connectorId
+        ? 'SELECT * FROM webhook_delivery_log WHERE connector_id=? ORDER BY created_at DESC LIMIT 100'
+        : 'SELECT * FROM webhook_delivery_log ORDER BY created_at DESC LIMIT 100'
+      const results = connectorId
+        ? await DB.prepare(sql).bind(connectorId).all()
+        : await DB.prepare(sql).all()
+      return (results.results ?? []).map(r => rowToWebhookDeliveryLog(r as Record<string, unknown>))
+    },
+    async createWebhookDeliveryLog(data: Omit<WebhookDeliveryLog, 'id' | 'created_at'>): Promise<WebhookDeliveryLog> {
+      const item: WebhookDeliveryLog = { ...data, id: 'wdl-' + uid(), created_at: now() }
+      await DB.prepare('INSERT INTO webhook_delivery_log (id,connector_id,tenant_id,event_type,payload_hash,target_url_hint,attempt,status,http_status,response_hint,error_message,delivered_at,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+        .bind(item.id, item.connector_id, item.tenant_id, item.event_type, item.payload_hash, item.target_url_hint, item.attempt, item.status, item.http_status, item.response_hint, item.error_message, item.delivered_at, item.created_at)
+        .run()
+      return item
+    },
+    async updateWebhookDeliveryStatus(id: string, status: WebhookDeliveryStatus, httpStatus: number | null, responseHint: string, errorMsg: string): Promise<void> {
+      const deliveredAt = status === 'delivered' ? now() : null
+      await DB.prepare('UPDATE webhook_delivery_log SET status=?,http_status=?,response_hint=?,error_message=?,delivered_at=? WHERE id=?')
+        .bind(status, httpStatus, responseHint, errorMsg, deliveredAt, id)
+        .run()
+    },
+
+    // ============================================================
+    // P5: AI Assist Log
+    // ============================================================
+    async getAiAssistLogs(tenantId?: string): Promise<AiAssistLog[]> {
+      const sql = tenantId
+        ? 'SELECT * FROM ai_assist_log WHERE tenant_id=? ORDER BY created_at DESC LIMIT 50'
+        : 'SELECT * FROM ai_assist_log ORDER BY created_at DESC LIMIT 50'
+      const results = tenantId
+        ? await DB.prepare(sql).bind(tenantId).all()
+        : await DB.prepare(sql).all()
+      return (results.results ?? []).map(r => rowToAiAssistLog(r as Record<string, unknown>))
+    },
+    async createAiAssistLog(data: Omit<AiAssistLog, 'id' | 'created_at'>): Promise<AiAssistLog> {
+      const item: AiAssistLog = { ...data, id: 'aai-' + uid(), created_at: now() }
+      await DB.prepare('INSERT INTO ai_assist_log (id,tenant_id,session_id,assist_type,prompt_hash,model_hint,confidence_tag,output_summary,confirmed_by,confirmed_at,discarded,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+        .bind(item.id, item.tenant_id, item.session_id, item.assist_type, item.prompt_hash, item.model_hint, item.confidence_tag, item.output_summary, item.confirmed_by, item.confirmed_at, boolInt(item.discarded), item.created_by, item.created_at)
+        .run()
+      return item
+    },
+    async confirmAiAssist(id: string, confirmedBy: string): Promise<void> {
+      await DB.prepare('UPDATE ai_assist_log SET confirmed_by=?,confirmed_at=?,confidence_tag=? WHERE id=?')
+        .bind(confirmedBy, now(), 'reviewed', id)
+        .run()
+    },
+    async discardAiAssist(id: string): Promise<void> {
+      await DB.prepare('UPDATE ai_assist_log SET discarded=1 WHERE id=?').bind(id).run()
+    },
+
+    // ============================================================
+    // P5: Public API Keys
+    // ============================================================
+    async getPublicApiKeys(tenantId?: string): Promise<PublicApiKey[]> {
+      const sql = tenantId
+        ? 'SELECT * FROM public_api_keys WHERE tenant_id=? ORDER BY created_at DESC'
+        : 'SELECT * FROM public_api_keys ORDER BY created_at DESC'
+      const results = tenantId
+        ? await DB.prepare(sql).bind(tenantId).all()
+        : await DB.prepare(sql).all()
+      return (results.results ?? []).map(r => rowToPublicApiKey(r as Record<string, unknown>))
+    },
+    async getPublicApiKeyByHash(keyHash: string): Promise<PublicApiKey | undefined> {
+      const r = await DB.prepare('SELECT * FROM public_api_keys WHERE key_hash=? AND active=1').bind(keyHash).first()
+      return r ? rowToPublicApiKey(r as Record<string, unknown>) : undefined
+    },
+    async createPublicApiKey(data: Omit<PublicApiKey, 'id' | 'created_at'>): Promise<PublicApiKey> {
+      const item: PublicApiKey = { ...data, id: 'pak-' + uid(), created_at: now() }
+      await DB.prepare('INSERT INTO public_api_keys (id,label,tenant_id,key_hash,role_scope,rate_limit,active,last_used_at,request_count,issued_by,notes,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)')
+        .bind(item.id, item.label, item.tenant_id, item.key_hash, item.role_scope, item.rate_limit, boolInt(item.active), item.last_used_at, item.request_count, item.issued_by, item.notes, item.created_at)
+        .run()
+      return item
+    },
+    async revokePublicApiKey(id: string): Promise<void> {
+      await DB.prepare('UPDATE public_api_keys SET active=0 WHERE id=?').bind(id).run()
+    },
+    async incrementPublicApiKeyUsage(keyHash: string): Promise<void> {
+      await DB.prepare('UPDATE public_api_keys SET request_count=request_count+1,last_used_at=? WHERE key_hash=?')
+        .bind(now(), keyHash).run()
+    },
   }
 }
 
@@ -1202,7 +1412,79 @@ function createMemRepo() {
         unread_alerts: mem.platformAlerts.filter(a => !a.acknowledged).length,
         canon_candidates: mem.canonCandidates.filter(c => c.status === 'candidate').length,
       }
-    }
+    },
+
+    // P5: Tenants (in-memory)
+    async getTenants() { return [...mem.tenants] },
+    async getTenant(id: string) { return mem.tenants.find(t => t.id === id) },
+    async getTenantBySlug(slug: string) { return mem.tenants.find(t => t.slug === slug) },
+    async createTenant(data: Omit<Tenant, 'id' | 'created_at' | 'updated_at'>) {
+      const item: Tenant = { ...data, id: 'tenant-' + uid(), created_at: now(), updated_at: now() }
+      mem.tenants.push(item); return item
+    },
+    async updateTenant(id: string, updates: Partial<Tenant>) {
+      const idx = mem.tenants.findIndex(t => t.id === id)
+      if (idx >= 0) mem.tenants[idx] = { ...mem.tenants[idx], ...updates, updated_at: now() }
+    },
+
+    // P5: Webhook Delivery Log (in-memory)
+    async getWebhookDeliveryLogs(connectorId?: string) {
+      if (connectorId) return mem.webhookDeliveryLogs.filter(w => w.connector_id === connectorId)
+      return [...mem.webhookDeliveryLogs]
+    },
+    async createWebhookDeliveryLog(data: Omit<WebhookDeliveryLog, 'id' | 'created_at'>) {
+      const item: WebhookDeliveryLog = { ...data, id: 'wdl-' + uid(), created_at: now() }
+      mem.webhookDeliveryLogs.push(item); return item
+    },
+    async updateWebhookDeliveryStatus(id: string, status: WebhookDeliveryStatus, httpStatus: number | null, responseHint: string, errorMsg: string) {
+      const idx = mem.webhookDeliveryLogs.findIndex(w => w.id === id)
+      if (idx >= 0) {
+        mem.webhookDeliveryLogs[idx].status = status
+        mem.webhookDeliveryLogs[idx].http_status = httpStatus
+        mem.webhookDeliveryLogs[idx].response_hint = responseHint
+        mem.webhookDeliveryLogs[idx].error_message = errorMsg
+        if (status === 'delivered') mem.webhookDeliveryLogs[idx].delivered_at = now()
+      }
+    },
+
+    // P5: AI Assist Log (in-memory)
+    async getAiAssistLogs(tenantId?: string) {
+      if (tenantId) return mem.aiAssistLogs.filter(a => a.tenant_id === tenantId)
+      return [...mem.aiAssistLogs]
+    },
+    async createAiAssistLog(data: Omit<AiAssistLog, 'id' | 'created_at'>) {
+      const item: AiAssistLog = { ...data, id: 'aai-' + uid(), created_at: now() }
+      mem.aiAssistLogs.push(item); return item
+    },
+    async confirmAiAssist(id: string, confirmedBy: string) {
+      const idx = mem.aiAssistLogs.findIndex(a => a.id === id)
+      if (idx >= 0) { mem.aiAssistLogs[idx].confirmed_by = confirmedBy; mem.aiAssistLogs[idx].confirmed_at = now(); mem.aiAssistLogs[idx].confidence_tag = 'reviewed' }
+    },
+    async discardAiAssist(id: string) {
+      const idx = mem.aiAssistLogs.findIndex(a => a.id === id)
+      if (idx >= 0) mem.aiAssistLogs[idx].discarded = true
+    },
+
+    // P5: Public API Keys (in-memory)
+    async getPublicApiKeys(tenantId?: string) {
+      if (tenantId) return mem.publicApiKeys.filter(k => k.tenant_id === tenantId)
+      return [...mem.publicApiKeys]
+    },
+    async getPublicApiKeyByHash(keyHash: string) {
+      return mem.publicApiKeys.find(k => k.key_hash === keyHash && k.active)
+    },
+    async createPublicApiKey(data: Omit<PublicApiKey, 'id' | 'created_at'>) {
+      const item: PublicApiKey = { ...data, id: 'pak-' + uid(), created_at: now() }
+      mem.publicApiKeys.push(item); return item
+    },
+    async revokePublicApiKey(id: string) {
+      const idx = mem.publicApiKeys.findIndex(k => k.id === id)
+      if (idx >= 0) mem.publicApiKeys[idx].active = false
+    },
+    async incrementPublicApiKeyUsage(keyHash: string) {
+      const idx = mem.publicApiKeys.findIndex(k => k.key_hash === keyHash)
+      if (idx >= 0) { mem.publicApiKeys[idx].request_count++; mem.publicApiKeys[idx].last_used_at = now() }
+    },
   }
 }
 

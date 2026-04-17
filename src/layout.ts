@@ -23,6 +23,11 @@ export function layout(title: string, content: string, activePage: string = '', 
     { path: '/lanes', label: 'Lanes', icon: '⊟', badge: '' },             // P4
     { path: '/reports', label: 'Reports', icon: '⬠', badge: '' },         // P4
   ]
+  const navP5 = [
+    { path: '/tenants', label: 'Tenants', icon: '⊛', badge: '' },         // P5
+    { path: '/ai-assist', label: 'AI Assist', icon: '◎', badge: '' },     // P5
+    { path: '/api-keys', label: 'API Keys', icon: '⊕', badge: '' },       // P5
+  ]
 
   const navItems = navP0P3.map(n => {
     const isActive = activePage === n.path
@@ -37,6 +42,12 @@ export function layout(title: string, content: string, activePage: string = '', 
       <span class="nav-icon">${n.icon}</span>
       <span class="nav-label">${n.label}</span>
       ${badgeHtml}
+    </a>`
+  }).join('') + `<div class="nav-section-label">P5</div>` + navP5.map(n => {
+    const isActive = activePage === n.path
+    return `<a href="${n.path}" class="nav-item${isActive ? ' active' : ''}">
+      <span class="nav-icon">${n.icon}</span>
+      <span class="nav-label">${n.label}</span>
     </a>`
   }).join('')
 

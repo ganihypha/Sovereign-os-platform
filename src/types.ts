@@ -1,7 +1,9 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — DATA MODEL v1.2 (P2)
+// SOVEREIGN OS PLATFORM — DATA MODEL v1.5 (P5)
 // Operating Law: Founder → L1 → L2 → L3 → Proof → Review → Live → Canon
 // P2 adds: RoleAssignment, SessionContinuity, GovernanceBoundary, OperatorNote
+// P4 adds: ProductLane, PlatformAlert, CanonPromotion
+// P5 adds: Tenant, WebhookDeliveryLog, AiAssistLog, PublicApiKey, MetricsSnapshot
 // ============================================================
 
 export type Lane = 'governance' | 'ops' | 'docs' | 'execution' | 'product-lane'
@@ -318,6 +320,102 @@ export interface Connector {
   event_count: number
   owner_role: string
   notes: string
+  tenant_id: string        // P5: tenant isolation
+  webhook_url: string      // P5: outbound webhook URL (no auth secrets inline)
   created_at: string
   updated_at: string
+}
+
+// ============================================================
+// P5 TYPES — Multi-Tenant, Webhook Delivery, AI Assist, Public API
+// ============================================================
+
+export type TenantStatus = 'active' | 'suspended' | 'archived'
+export type TenantApproval = 'pending' | 'approved' | 'rejected'
+export type TenantPlan = 'standard' | 'enterprise'
+export type TenantIsolation = 'shared' | 'isolated'
+export type WebhookDeliveryStatus = 'pending' | 'delivered' | 'failed' | 'retrying'
+export type AiAssistType = 'session_brief' | 'scope_suggestion' | 'risk_assessment' | 'review_summary' | 'general'
+export type ApiKeyScope = 'readonly' | 'readwrite'
+
+export interface Tenant {
+  id: string
+  slug: string
+  name: string
+  description: string
+  status: TenantStatus
+  approval_status: TenantApproval
+  approved_by: string | null
+  approval_tier: number
+  plan: TenantPlan
+  owner_email: string
+  owner_name: string
+  isolation_mode: TenantIsolation
+  notes: string
+  created_at: string
+  updated_at: string
+}
+
+export interface WebhookDeliveryLog {
+  id: string
+  connector_id: string
+  tenant_id: string
+  event_type: string
+  payload_hash: string       // HMAC-SHA256 hash — never raw payload
+  target_url_hint: string    // sanitized — no secrets
+  attempt: number
+  status: WebhookDeliveryStatus
+  http_status: number | null
+  response_hint: string
+  error_message: string
+  delivered_at: string | null
+  created_at: string
+}
+
+export interface AiAssistLog {
+  id: string
+  tenant_id: string
+  session_id: string | null
+  assist_type: AiAssistType
+  prompt_hash: string        // SHA-256 of prompt — never raw prompt stored
+  model_hint: string
+  confidence_tag: string     // ALWAYS 'ai-generated' until human confirmed
+  output_summary: string     // First 200 chars for audit
+  confirmed_by: string | null
+  confirmed_at: string | null
+  discarded: boolean
+  created_by: string
+  created_at: string
+}
+
+export interface PublicApiKey {
+  id: string
+  label: string
+  tenant_id: string
+  key_hash: string           // SHA-256 hash — raw key never stored after issuance
+  role_scope: ApiKeyScope
+  rate_limit: number
+  active: boolean
+  last_used_at: string | null
+  request_count: number
+  issued_by: string
+  notes: string
+  created_at: string
+}
+
+export interface MetricsSnapshot {
+  id: string
+  tenant_id: string
+  snapshot_type: 'hourly' | 'daily' | 'weekly'
+  period_label: string
+  total_sessions: number
+  active_sessions: number
+  pending_approvals: number
+  running_executions: number
+  active_connectors: number
+  verified_proofs: number
+  active_lanes: number
+  unread_alerts: number
+  canon_candidates: number
+  created_at: string
 }
