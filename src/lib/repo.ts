@@ -219,6 +219,28 @@ function ensureSeeded() {
     })
   }
 
+  // P4: Seed product lanes
+  mem.productLanes.push(
+    { id: 'lane-001', name: 'Sovereign OS Platform Core', lane_type: 'governance-core',
+      description: 'The platform governance core.', repo_link: 'https://github.com/ganihypha/Sovereign-os-platform',
+      owner: 'Founder', owner_role: 'founder', governance_tier: 3, status: 'active',
+      approval_status: 'approved', approved_by: 'Founder', notes: 'Root governance lane.',
+      created_at: ts, updated_at: ts },
+    { id: 'lane-002', name: 'BarberKas', lane_type: 'product-vertical',
+      description: 'Barber shop management product lane.', repo_link: '',
+      owner: 'Architect', owner_role: 'architect', governance_tier: 2, status: 'active',
+      approval_status: 'approved', approved_by: 'Architect', notes: 'Example product vertical.',
+      created_at: ts, updated_at: ts }
+  )
+
+  // P4: Seed alerts
+  mem.platformAlerts.push(
+    { id: 'alert-001', alert_type: 'canon_candidate_ready', title: 'Canon Candidate Awaiting Review',
+      message: 'Canon candidate "Sovereign OS Platform — Operating Law" is awaiting review.',
+      severity: 'info', object_type: 'canon_candidates', object_id: 'can-001',
+      acknowledged: false, acknowledged_by: null, acknowledged_at: null, created_at: ts }
+  )
+
   // P2: Seed initial continuity snapshot
   mem.sessionContinuity.push({
     id: 'cont-001',
@@ -450,6 +472,51 @@ function rowToConnector(r: Record<string, unknown>): Connector {
     notes: String(r.notes ?? ''),
     created_at: String(r.created_at),
     updated_at: String(r.updated_at)
+  }
+}
+
+// ---- P4 row mappers ----
+function rowToProductLane(r: Record<string, unknown>): ProductLane {
+  return {
+    id: String(r.id), name: String(r.name),
+    lane_type: r.lane_type as LaneType,
+    description: String(r.description ?? ''),
+    repo_link: String(r.repo_link ?? ''),
+    owner: String(r.owner ?? ''),
+    owner_role: String(r.owner_role ?? ''),
+    governance_tier: Number(r.governance_tier ?? 2),
+    status: r.status as LaneStatus,
+    approval_status: r.approval_status as LaneApproval,
+    approved_by: r.approved_by ? String(r.approved_by) : null,
+    notes: String(r.notes ?? ''),
+    created_at: String(r.created_at),
+    updated_at: String(r.updated_at)
+  }
+}
+function rowToAlert(r: Record<string, unknown>): PlatformAlert {
+  return {
+    id: String(r.id),
+    alert_type: r.alert_type as AlertType,
+    title: String(r.title ?? ''),
+    message: String(r.message ?? ''),
+    severity: r.severity as AlertSeverity,
+    object_type: String(r.object_type ?? ''),
+    object_id: String(r.object_id ?? ''),
+    acknowledged: bool(r.acknowledged as number),
+    acknowledged_by: r.acknowledged_by ? String(r.acknowledged_by) : null,
+    acknowledged_at: r.acknowledged_at ? String(r.acknowledged_at) : null,
+    created_at: String(r.created_at)
+  }
+}
+function rowToCanonPromotion(r: Record<string, unknown>): CanonPromotion {
+  return {
+    id: String(r.id),
+    canon_candidate_id: String(r.canon_candidate_id ?? ''),
+    action: r.action as CanonAction,
+    acted_by: String(r.acted_by ?? ''),
+    acted_by_role: String(r.acted_by_role ?? ''),
+    reason: String(r.reason ?? ''),
+    acted_at: String(r.acted_at)
   }
 }
 
@@ -813,6 +880,100 @@ function createD1Repo(DB: D1Database) {
         .bind(merged.status, merged.approval_status, merged.approved_by, merged.risk_level, merged.notes, merged.last_event_at, merged.event_count, merged.updated_at, id)
         .run()
       return merged
+    },
+
+    // ---- P4: Product Lanes ----
+    async getProductLanes(): Promise<ProductLane[]> {
+      const { results } = await DB.prepare('SELECT * FROM product_lanes ORDER BY created_at ASC').all()
+      return results.map(r => rowToProductLane(r as Record<string, unknown>))
+    },
+    async getProductLane(id: string): Promise<ProductLane | undefined> {
+      const r = await DB.prepare('SELECT * FROM product_lanes WHERE id=?').bind(id).first()
+      return r ? rowToProductLane(r as Record<string, unknown>) : undefined
+    },
+    async createProductLane(data: Omit<ProductLane, 'id' | 'created_at' | 'updated_at'>): Promise<ProductLane> {
+      const item = { ...data, id: 'lane-' + uid(), created_at: now(), updated_at: now() } as ProductLane
+      await DB.prepare('INSERT INTO product_lanes (id,name,lane_type,description,repo_link,owner,owner_role,governance_tier,status,approval_status,approved_by,notes,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+        .bind(item.id, item.name, item.lane_type, item.description, item.repo_link, item.owner, item.owner_role, item.governance_tier, item.status, item.approval_status, item.approved_by, item.notes, item.created_at, item.updated_at)
+        .run()
+      return item
+    },
+    async updateProductLane(id: string, updates: Partial<ProductLane>): Promise<ProductLane | undefined> {
+      const ts = now()
+      const item = await this.getProductLane(id)
+      if (!item) return undefined
+      const merged = { ...item, ...updates, updated_at: ts }
+      await DB.prepare('UPDATE product_lanes SET status=?,approval_status=?,approved_by=?,notes=?,updated_at=? WHERE id=?')
+        .bind(merged.status, merged.approval_status, merged.approved_by, merged.notes, merged.updated_at, id)
+        .run()
+      return merged
+    },
+
+    // ---- P4: Platform Alerts ----
+    async getAlerts(onlyUnread?: boolean): Promise<PlatformAlert[]> {
+      const sql = onlyUnread
+        ? 'SELECT * FROM platform_alerts WHERE acknowledged=0 ORDER BY created_at DESC'
+        : 'SELECT * FROM platform_alerts ORDER BY created_at DESC'
+      const { results } = await DB.prepare(sql).all()
+      return results.map(r => rowToAlert(r as Record<string, unknown>))
+    },
+    async createAlert(data: Omit<PlatformAlert, 'id' | 'created_at'>): Promise<PlatformAlert> {
+      const item = { ...data, id: 'alert-' + uid(), created_at: now() } as PlatformAlert
+      await DB.prepare('INSERT INTO platform_alerts (id,alert_type,title,message,severity,object_type,object_id,acknowledged,acknowledged_by,acknowledged_at,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
+        .bind(item.id, item.alert_type, item.title, item.message, item.severity, item.object_type, item.object_id, boolInt(item.acknowledged), item.acknowledged_by, item.acknowledged_at, item.created_at)
+        .run()
+      return item
+    },
+    async acknowledgeAlert(id: string, by: string): Promise<void> {
+      await DB.prepare('UPDATE platform_alerts SET acknowledged=1,acknowledged_by=?,acknowledged_at=? WHERE id=?')
+        .bind(by, now(), id)
+        .run()
+    },
+    async getUnreadAlertCount(): Promise<number> {
+      const r = await DB.prepare('SELECT COUNT(*) as cnt FROM platform_alerts WHERE acknowledged=0').first()
+      return Number((r as Record<string, unknown>)?.cnt ?? 0)
+    },
+
+    // ---- P4: Canon Promotions ----
+    async getCanonPromotions(candidateId?: string): Promise<CanonPromotion[]> {
+      const sql = candidateId
+        ? 'SELECT * FROM canon_promotions WHERE canon_candidate_id=? ORDER BY acted_at DESC'
+        : 'SELECT * FROM canon_promotions ORDER BY acted_at DESC'
+      const { results } = candidateId
+        ? await DB.prepare(sql).bind(candidateId).all()
+        : await DB.prepare(sql).all()
+      return results.map(r => rowToCanonPromotion(r as Record<string, unknown>))
+    },
+    async createCanonPromotion(data: Omit<CanonPromotion, 'id'>): Promise<CanonPromotion> {
+      const item = { ...data, id: 'cprom-' + uid() } as CanonPromotion
+      await DB.prepare('INSERT INTO canon_promotions (id,canon_candidate_id,action,acted_by,acted_by_role,reason,acted_at) VALUES (?,?,?,?,?,?,?)')
+        .bind(item.id, item.canon_candidate_id, item.action, item.acted_by, item.acted_by_role, item.reason, item.acted_at)
+        .run()
+      return item
+    },
+
+    // ---- P4: Reports / Metrics ----
+    async getReportMetrics(): Promise<Record<string, number>> {
+      const [sessions, approvals, execEntries, connectors, proofs, lanes, alerts, canonItems] = await Promise.all([
+        DB.prepare('SELECT COUNT(*) as cnt FROM sessions').first(),
+        DB.prepare('SELECT COUNT(*) as cnt FROM approval_requests WHERE status=\'pending\'').first(),
+        DB.prepare('SELECT COUNT(*) as cnt FROM execution_entries WHERE status=\'running\'').first(),
+        DB.prepare('SELECT COUNT(*) as cnt FROM connectors WHERE status=\'active\'').first(),
+        DB.prepare('SELECT COUNT(*) as cnt FROM proof_artifacts WHERE status=\'reviewed\'').first(),
+        DB.prepare('SELECT COUNT(*) as cnt FROM product_lanes WHERE status=\'active\'').first(),
+        DB.prepare('SELECT COUNT(*) as cnt FROM platform_alerts WHERE acknowledged=0').first(),
+        DB.prepare('SELECT COUNT(*) as cnt FROM canon_candidates WHERE status=\'candidate\'').first(),
+      ])
+      return {
+        total_sessions: Number((sessions as Record<string,unknown>)?.cnt ?? 0),
+        pending_approvals: Number((approvals as Record<string,unknown>)?.cnt ?? 0),
+        running_executions: Number((execEntries as Record<string,unknown>)?.cnt ?? 0),
+        active_connectors: Number((connectors as Record<string,unknown>)?.cnt ?? 0),
+        verified_proofs: Number((proofs as Record<string,unknown>)?.cnt ?? 0),
+        active_lanes: Number((lanes as Record<string,unknown>)?.cnt ?? 0),
+        unread_alerts: Number((alerts as Record<string,unknown>)?.cnt ?? 0),
+        canon_candidates: Number((canonItems as Record<string,unknown>)?.cnt ?? 0),
+      }
     }
   }
 }
@@ -987,6 +1148,60 @@ function createMemRepo() {
       const idx = mem.connectors.findIndex(c => c.id === id)
       if (idx >= 0) mem.connectors[idx] = { ...mem.connectors[idx], ...updates, updated_at: now() }
       return mem.connectors[idx]
+    },
+
+    // P4: Product Lanes
+    async getProductLanes() { return [...mem.productLanes] },
+    async getProductLane(id: string) { return mem.productLanes.find(l => l.id === id) },
+    async createProductLane(data: Omit<ProductLane, 'id' | 'created_at' | 'updated_at'>) {
+      const item = { ...data, id: 'lane-' + uid(), created_at: now(), updated_at: now() } as ProductLane
+      mem.productLanes.push(item); return item
+    },
+    async updateProductLane(id: string, updates: Partial<ProductLane>) {
+      const idx = mem.productLanes.findIndex(l => l.id === id)
+      if (idx >= 0) mem.productLanes[idx] = { ...mem.productLanes[idx], ...updates, updated_at: now() }
+      return mem.productLanes[idx]
+    },
+
+    // P4: Platform Alerts
+    async getAlerts(onlyUnread?: boolean) {
+      if (onlyUnread) return mem.platformAlerts.filter(a => !a.acknowledged)
+      return [...mem.platformAlerts]
+    },
+    async createAlert(data: Omit<PlatformAlert, 'id' | 'created_at'>) {
+      const item = { ...data, id: 'alert-' + uid(), created_at: now() } as PlatformAlert
+      mem.platformAlerts.push(item); return item
+    },
+    async acknowledgeAlert(id: string, by: string) {
+      const idx = mem.platformAlerts.findIndex(a => a.id === id)
+      if (idx >= 0) { mem.platformAlerts[idx].acknowledged = true; mem.platformAlerts[idx].acknowledged_by = by; mem.platformAlerts[idx].acknowledged_at = now() }
+    },
+    async getUnreadAlertCount() {
+      return mem.platformAlerts.filter(a => !a.acknowledged).length
+    },
+
+    // P4: Canon Promotions
+    async getCanonPromotions(candidateId?: string) {
+      if (candidateId) return mem.canonPromotions.filter(p => p.canon_candidate_id === candidateId)
+      return [...mem.canonPromotions]
+    },
+    async createCanonPromotion(data: Omit<CanonPromotion, 'id'>) {
+      const item = { ...data, id: 'cprom-' + uid() } as CanonPromotion
+      mem.canonPromotions.push(item); return item
+    },
+
+    // P4: Reports
+    async getReportMetrics(): Promise<Record<string, number>> {
+      return {
+        total_sessions: mem.sessions.length,
+        pending_approvals: mem.approvalRequests.filter(a => a.status === 'pending').length,
+        running_executions: mem.executionEntries.filter(e => e.status === 'running').length,
+        active_connectors: mem.connectors.filter(c => c.status === 'active').length,
+        verified_proofs: mem.proofArtifacts.filter(p => p.status === 'reviewed').length,
+        active_lanes: mem.productLanes.filter(l => l.status === 'active').length,
+        unread_alerts: mem.platformAlerts.filter(a => !a.acknowledged).length,
+        canon_candidates: mem.canonCandidates.filter(c => c.status === 'candidate').length,
+      }
     }
   }
 }

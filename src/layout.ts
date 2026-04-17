@@ -2,8 +2,8 @@
 // SOVEREIGN OS PLATFORM — SHARED HTML LAYOUT
 // ============================================================
 
-export function layout(title: string, content: string, activePage: string = ''): string {
-  const nav = [
+export function layout(title: string, content: string, activePage: string = '', alertCount: number = 0): string {
+  const navP0P3 = [
     { path: '/dashboard', label: 'Dashboard', icon: '⬡' },
     { path: '/intent', label: 'Intent', icon: '◈' },
     { path: '/intake', label: 'Intake', icon: '⊕' },
@@ -16,12 +16,27 @@ export function layout(title: string, content: string, activePage: string = ''):
     { path: '/execution', label: 'Execution', icon: '▶' },    // P3
     { path: '/connectors', label: 'Connectors', icon: '⊞' }, // P3
   ]
+  const navP4 = [
+    { path: '/workspace', label: 'Workspace', icon: '◈', badge: '' },    // P4
+    { path: '/alerts', label: 'Alerts', icon: '◉', badge: alertCount > 0 ? String(alertCount) : '' },  // P4
+    { path: '/canon', label: 'Canon', icon: '▣', badge: '' },             // P4
+    { path: '/lanes', label: 'Lanes', icon: '⊟', badge: '' },             // P4
+    { path: '/reports', label: 'Reports', icon: '⬠', badge: '' },         // P4
+  ]
 
-  const navItems = nav.map(n => {
+  const navItems = navP0P3.map(n => {
     const isActive = activePage === n.path
     return `<a href="${n.path}" class="nav-item${isActive ? ' active' : ''}">
       <span class="nav-icon">${n.icon}</span>
       <span class="nav-label">${n.label}</span>
+    </a>`
+  }).join('') + `<div class="nav-section-label">P4</div>` + navP4.map(n => {
+    const isActive = activePage === n.path || activePage.startsWith('/w/')
+    const badgeHtml = n.badge ? `<span style="background:#ef4444;color:#fff;border-radius:10px;padding:0 5px;font-size:10px;font-weight:700;margin-left:auto">${n.badge}</span>` : ''
+    return `<a href="${n.path}" class="nav-item${isActive ? ' active' : ''}">
+      <span class="nav-icon">${n.icon}</span>
+      <span class="nav-label">${n.label}</span>
+      ${badgeHtml}
     </a>`
   }).join('')
 
@@ -110,6 +125,7 @@ export function layout(title: string, content: string, activePage: string = ''):
     .nav-item:hover { background: var(--bg3); color: var(--text); }
     .nav-item.active { background: rgba(79,142,247,0.12); color: var(--accent); }
     .nav-icon { font-size: 15px; width: 20px; text-align: center; }
+    .nav-section-label { font-size: 10px; font-weight: 700; letter-spacing: 0.1em; color: var(--text3); text-transform: uppercase; padding: 10px 10px 4px; margin-top: 4px; }
     .sidebar-footer {
       padding: 12px 16px;
       border-top: 1px solid var(--border);

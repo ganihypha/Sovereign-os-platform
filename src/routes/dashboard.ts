@@ -17,7 +17,7 @@ export function createDashboardRoute() {
     const isAuth = await isAuthenticated(c, c.env)
     const roleCtx = buildRoleContext(isAuth)
 
-    const [sessions, approvals, priorities, proofs, continuities, notes, execEntries, connectors] = await Promise.all([
+    const [sessions, approvals, priorities, proofs, continuities, notes, execEntries, connectors, alerts, lanes] = await Promise.all([
       repo.getSessions(),
       repo.getApprovalRequests(),
       repo.getPriorityItems(),
@@ -26,6 +26,8 @@ export function createDashboardRoute() {
       repo.getOperatorNotes(),
       repo.getExecutionEntries(),
       repo.getConnectors(),
+      repo.getAlerts ? repo.getAlerts() : Promise.resolve([]),
+      repo.getProductLanes ? repo.getProductLanes() : Promise.resolve([]),
     ])
     const continuityAssessment = await assessContinuityHealth(repo)
 
@@ -40,6 +42,9 @@ export function createDashboardRoute() {
     const runningExec = execEntries.filter(e => e.status === 'running')
     const blockedExec = execEntries.filter(e => e.status === 'blocked')
     const activeConnectors = connectors.filter(c => c.status === 'active')
+    const unreadAlerts = (alerts as { acknowledged: boolean }[]).filter(a => !a.acknowledged)
+    const activeAlertCount = unreadAlerts.length
+    const activeLanes = (lanes as { status: string }[]).filter(l => l.status === 'active')
 
     const persistBadge = repo.isPersistent
       ? '<span style="background:rgba(34,197,94,0.15);color:#22c55e;border:1px solid rgba(34,197,94,0.3);border-radius:4px;padding:2px 8px;font-size:11px;font-weight:700">D1 PERSISTENT</span>'
@@ -89,7 +94,29 @@ export function createDashboardRoute() {
         <div class="stat-card">
           <div class="stat-label">Auth Status</div>
           <div style="margin-top:6px">${authStatusBadge(!!c.env.PLATFORM_API_KEY, isAuth)}</div>
-          <div class="stat-sub">Build: P3 Operational</div>
+          <div class="stat-sub">Build: P4 Operationalized</div>
+        </div>
+      </div>
+      <div class="grid-4 mb-4">
+        <div class="stat-card">
+          <div class="stat-label">Unread Alerts</div>
+          <div class="stat-value" style="color:${activeAlertCount > 0 ? 'var(--yellow)' : 'var(--green)'}">${activeAlertCount}</div>
+          <div class="stat-sub"><a href="/alerts" style="color:var(--accent)">Alert Center →</a></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Active Lanes</div>
+          <div class="stat-value" style="color:var(--purple)">${activeLanes.length}</div>
+          <div class="stat-sub"><a href="/lanes" style="color:var(--accent)">Lane Directory →</a></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Role Workspace</div>
+          <div style="margin-top:6px">${roleBadge(roleCtx)}</div>
+          <div class="stat-sub"><a href="/workspace" style="color:var(--accent)">Open Workspace →</a></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Platform Reports</div>
+          <div class="stat-value" style="color:var(--cyan)">→</div>
+          <div class="stat-sub"><a href="/reports" style="color:var(--accent)">View Reports →</a></div>
         </div>
       </div>`
 
@@ -198,7 +225,7 @@ export function createDashboardRoute() {
         </div>
       </div>`
 
-    return c.html(layout('Dashboard', content, '/dashboard'))
+    return c.html(layout('Dashboard', content, '/dashboard', activeAlertCount))
   })
 
   return route

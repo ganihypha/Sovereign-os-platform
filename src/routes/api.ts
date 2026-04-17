@@ -547,5 +547,30 @@ export function createApiRoute() {
     })
   })
 
+  // ---- P4: /api/reports ----
+  route.get('/reports', async (c) => {
+    const repo = createRepo(c.env.DB)
+    try {
+      const metrics = await repo.getReportMetrics()
+      return c.json({
+        platform: 'Sovereign OS Platform',
+        version: '0.4.0-P4',
+        generated_at: new Date().toISOString(),
+        data_source: repo.isPersistent ? 'd1' : 'in-memory',
+        metrics,
+        note: 'All metrics computed from real D1 queries. No synthetic data.'
+      })
+    } catch (_e) {
+      return c.json({ error: 'METRICS_ERROR', message: 'Could not compute metrics.' }, 500)
+    }
+  })
+
+  // ---- P4: /api/lanes ----
+  route.get('/lanes', async (c) => {
+    const repo = createRepo(c.env.DB)
+    const lanes = await repo.getProductLanes()
+    return c.json({ lanes, count: lanes.length })
+  })
+
   return route
 }

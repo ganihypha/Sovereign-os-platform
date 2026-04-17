@@ -218,6 +218,67 @@ export interface OperatorNote {
 // P3 ADDITIONS — Execution Board + Connector Hub
 // ============================================================
 
+// ============================================================
+// P4 ADDITIONS — Lane Directory + Alerts + Canon Promotion
+// ============================================================
+
+export type LaneType = 'governance-core' | 'product-vertical' | 'runtime-service' | 'experiment'
+export type LaneStatus = 'active' | 'inactive' | 'archived'
+export type LaneApproval = 'pending' | 'approved' | 'rejected'
+export type AlertType =
+  | 'approval_pending'
+  | 'proof_submitted'
+  | 'connector_error'
+  | 'session_stale'
+  | 'execution_blocked'
+  | 'canon_candidate_ready'
+  | 'lane_registered'
+  | 'role_assigned'
+export type AlertSeverity = 'info' | 'warning' | 'critical'
+export type CanonAction = 'promote' | 'reject'
+export type ReviewStatus = 'candidate' | 'under_review' | 'promoted' | 'rejected'
+
+export interface ProductLane {
+  id: string
+  name: string
+  lane_type: LaneType
+  description: string
+  repo_link: string
+  owner: string
+  owner_role: string
+  governance_tier: number
+  status: LaneStatus
+  approval_status: LaneApproval
+  approved_by: string | null
+  notes: string
+  created_at: string
+  updated_at: string
+}
+
+export interface PlatformAlert {
+  id: string
+  alert_type: AlertType
+  title: string
+  message: string
+  severity: AlertSeverity
+  object_type: string
+  object_id: string
+  acknowledged: boolean
+  acknowledged_by: string | null
+  acknowledged_at: string | null
+  created_at: string
+}
+
+export interface CanonPromotion {
+  id: string
+  canon_candidate_id: string
+  action: CanonAction
+  acted_by: string
+  acted_by_role: string
+  reason: string
+  acted_at: string
+}
+
 export type ExecutionStatus = 'pending' | 'running' | 'blocked' | 'done' | 'cancelled'
 export type ExecutionPriority = 'critical' | 'high' | 'normal' | 'low'
 export type ConnectorType = 'webhook' | 'api' | 'queue' | 'event' | 'custom'

@@ -1,6 +1,6 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — MAIN ENTRY (P2 MATURITY / P2.5 HARDENED)
-// Version: 0.2.1-P2.5
+// SOVEREIGN OS PLATFORM — MAIN ENTRY (P4 — PRODUCT OPERATIONALIZATION)
+// Version: 0.4.0-P4
 // Platform: Cloudflare Pages + Workers
 // Hono Framework — Edge-first
 // ============================================================
@@ -11,7 +11,7 @@ import {
   handleAuthLogin, handleAuthLogout, authStatusBadge, isAuthenticated
 } from './lib/auth'
 
-// Route imports
+// Route imports — P0-P3 surfaces (preserved, no regression)
 import { createDashboardRoute } from './routes/dashboard'
 import { createIntentRoute } from './routes/intent'
 import { createIntakeRoute } from './routes/intake'
@@ -24,6 +24,14 @@ import { createApiRoute } from './routes/api'
 import { createContinuityRoute } from './routes/continuity'
 import { createExecutionRoute } from './routes/execution'
 import { createConnectorsRoute } from './routes/connectors'
+
+// Route imports — P4 new surfaces
+import { createWorkspaceRoute } from './routes/workspace'
+import { createAlertsRoute } from './routes/alerts'
+import { createCanonRoute } from './routes/canon'
+import { createLanesRoute } from './routes/lanes'
+import { createOnboardingRoute } from './routes/onboarding'
+import { createReportsRoute } from './routes/reports'
 
 export type Env = {
   DB?: D1Database
@@ -68,6 +76,25 @@ app.route('/continuity', createContinuityRoute())
 app.route('/execution', createExecutionRoute())
 app.route('/connectors', createConnectorsRoute())
 
+// P4: Role Workspaces
+app.route('/workspace', createWorkspaceRoute())
+app.route('/w', createWorkspaceRoute())
+
+// P4: Alerts
+app.route('/alerts', createAlertsRoute())
+
+// P4: Canon Promotion
+app.route('/canon', createCanonRoute())
+
+// P4: Lane Directory
+app.route('/lanes', createLanesRoute())
+
+// P4: Onboarding
+app.route('/onboarding', createOnboardingRoute())
+
+// P4: Reports
+app.route('/reports', createReportsRoute())
+
 // API routes — apply requireApiAuth middleware
 app.use('/api/*', async (c, next) => {
   const authMiddleware = requireApiAuth(c.env)
@@ -90,8 +117,8 @@ app.get('/health', (c) => {
   return c.json({
     status: 'ok',
     platform: 'Sovereign OS Platform',
-    version: '0.3.0-P3',
-    phase: 'P3 — Operational Expansion',
+    version: '0.4.0-P4',
+    phase: 'P4 — Product Operationalization',
     persistence: repo.isPersistent ? 'd1' : 'in-memory',
     auth_configured: !!c.env.PLATFORM_API_KEY,
     timestamp: new Date().toISOString(),
@@ -111,8 +138,8 @@ app.get('/status', async (c) => {
     return c.json({
       status: 'operational',
       platform: 'Sovereign OS Platform',
-      version: '0.3.0-P3',
-      phase: 'P3 — Operational Expansion',
+      version: '0.4.0-P4',
+      phase: 'P4 — Product Operationalization',
       persistence: repo.isPersistent ? 'd1-persistent' : 'in-memory-ephemeral',
       auth_configured: !!c.env.PLATFORM_API_KEY,
       surfaces: {
@@ -127,6 +154,12 @@ app.get('/status', async (c) => {
         continuity: 'active',
         execution: 'active',    // P3
         connectors: 'active',  // P3
+        workspace: 'active',   // P4
+        alerts: 'active',      // P4
+        canon: 'active',       // P4
+        lanes: 'active',       // P4
+        onboarding: 'active',  // P4
+        reports: 'active',     // P4
         api: 'active',
       },
       counts: {
