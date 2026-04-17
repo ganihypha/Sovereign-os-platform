@@ -1,206 +1,167 @@
-# Sovereign OS Platform
-
-**Phase: P4 — Product Operationalization**
-**Version: 0.4.0-P4**
-**Classification: LIVE-VERIFIED**
-
----
+# SOVEREIGN OS PLATFORM
 
 ## Platform Overview
 
-Sovereign OS Platform adalah layered operating/control platform — bukan single app, bukan domain-specific clone.
+**Name:** Sovereign OS Platform  
+**Version:** 0.5.0-P5  
+**Phase:** P5 — Multi-Tenant & AI-Augmented Operations  
+**Phase Status:** ✅ P5 VERIFIED (locally) | ✅ P5 LIVE-VERIFIED (production)  
+**Baseline:** P0–P4 LIVE-VERIFIED (preserved, zero regression)
 
-**Operating Law:**
-```
-Founder Intent → Intake → Orchestration → Execution → Proof → Live State → Canon
-```
-
-Platform ini mengatur alur kerja governed: dari intent strategis sampai canon yang diverifikasi, dengan audit trail penuh, role separation, dan tidak ada false verification.
-
----
-
-## Production URLs
-
-| Endpoint | URL | Status |
-|---|---|---|
-| Production | https://sovereign-os-platform.pages.dev | ✅ LIVE |
-| GitHub | https://github.com/ganihypha/Sovereign-os-platform | ✅ PUSHED |
-| Health | https://sovereign-os-platform.pages.dev/health | ✅ VERIFIED |
-| Status | https://sovereign-os-platform.pages.dev/status | ✅ VERIFIED |
-| Workspace | https://sovereign-os-platform.pages.dev/workspace | ✅ LIVE (P4) |
-| Alerts | https://sovereign-os-platform.pages.dev/alerts | ✅ LIVE (P4) |
-| Canon | https://sovereign-os-platform.pages.dev/canon | ✅ LIVE (P4) |
-| Lanes | https://sovereign-os-platform.pages.dev/lanes | ✅ LIVE (P4) |
-| Reports | https://sovereign-os-platform.pages.dev/reports | ✅ LIVE (P4) |
-| Onboarding | https://sovereign-os-platform.pages.dev/onboarding | ✅ LIVE (P4) |
-| API Reports | https://sovereign-os-platform.pages.dev/api/reports | ✅ LIVE (P4) |
+**Positioning:** A sovereign-grounded, layered operating/control platform for governed execution, approval, proof, continuity, and multi-lane coordination.
 
 ---
 
-## Active Surfaces (18)
+## URLs
 
-### P0–P3 Surfaces (LIVE-VERIFIED)
-
-| Path | Purpose | Phase | Auth |
-|---|---|---|---|
-| `/dashboard` | Platform overview, stats, live priority snapshot | P0 | Read: open, Mutations: auth |
-| `/intent` | Founder intent desk — strategic intent creation | P0 | Read: open, Mutations: auth |
-| `/intake` | Session intake, request logging | P0 | Read: open, Mutations: auth |
-| `/architect` | Architect workbench — scope and design | P0 | Read: open, Mutations: auth |
-| `/approvals` | Approval queue with tier-based gating | P0 | Read: open, Mutations: auth |
-| `/proof` | Proof center — artifact submission and review | P0 | Read: open, Mutations: auth |
-| `/live` | Live priority board (NOW/NEXT/LATER) | P0 | Read: open, Mutations: auth |
-| `/records` | Decision records, handoffs, canon candidates | P0 | Read: open, Mutations: auth |
-| `/continuity` | Session continuity, governance boundaries | P2 | Read: open, Mutations: auth |
-| `/execution` | Execution Board — work visibility, proof linkage | P3 | Read: open, Mutations: auth |
-| `/connectors` | Connector Hub — governed integration registry | P3 | Read: open, Mutations: auth |
-
-### P4 Surfaces (LIVE-VERIFIED)
-
-| Path | Purpose | Auth |
-|---|---|---|
-| `/workspace` | Role detection + redirect to role workspace | Auth required |
-| `/w/:role` | Role-differentiated operator workspaces (founder/architect/orchestrator/executor/reviewer) | Auth required |
-| `/alerts` | Alert center — governance-critical events, acknowledge/dismiss | Read: open, Acknowledge: auth |
-| `/canon` | Canon promotion workflow — promote/reject with audit | Read: open, Mutations: auth |
-| `/lanes` | Product Lane Directory — register + govern product lanes | Read: open, Mutations: auth |
-| `/reports` | Cross-lane reports — real D1-aggregated metrics | Open |
-| `/onboarding` | 4-step onboarding wizard for new operators | Open (can skip) |
-
-**API Routes (P4):**
-- `GET /api/reports` — Real D1 governance metrics (public)
-- `GET /api/lanes` — Lane directory JSON (public)
-- `POST /alerts/:id/acknowledge` — Acknowledge alert (auth)
-- `POST /alerts/acknowledge-all` — Acknowledge all (auth)
-- `POST /canon/:id/promote` — Promote to canon (auth, founder/architect)
-- `POST /canon/:id/reject` — Reject candidate (auth)
-- `POST /lanes` — Register new lane (auth, Tier 2)
-- `POST /lanes/:id/status` — Update lane status (auth)
-- `POST /lanes/:id/approve` — Approve lane (auth)
-
----
-
-## Database
-
-| Item | Value |
+| Endpoint | Status |
 |---|---|
-| Database | `sovereign-os-production` (Cloudflare D1) |
-| Database ID | `f6067325-9ea4-44bc-a5fd-e3d19367e657` |
-| Migrations Applied | 0001 → 0005 (prod + local) |
-
-### Tables (after P4)
-
-**P0-P1 Core:**
-`intents`, `sessions`, `requests`, `approval_requests`, `work_items`, `proof_artifacts`, `decision_records`, `handoff_records`, `priority_items`, `canon_candidates`, `api_keys`, `audit_log`
-
-**P2 Additions:**
-`role_assignments`, `session_continuity`, `governance_boundaries`, `operator_notes`
-
-**P3 Additions:**
-`execution_entries`, `connectors`
-
-**P4 Additions:**
-`product_lanes`, `platform_alerts`, `canon_promotions`
-
-**P4 Column Extensions:**
-- `sessions.onboarding_completed` (INTEGER DEFAULT 0)
-- `canon_candidates.review_status`, `reviewed_by`, `reviewed_at`, `review_reason`
+| **Production:** https://sovereign-os-platform.pages.dev | ✅ LIVE |
+| **GitHub:** https://github.com/ganihypha/Sovereign-os-platform | ✅ LIVE |
+| **D1 Database:** sovereign-os-production (f6067325-9ea4-44bc-a5fd-e3d19367e657) | ✅ LIVE |
 
 ---
 
-## Phase History
+## Current Phase: P5 — Multi-Tenant & AI-Augmented Operations
 
-### P0 — Control Core Scaffold
-- 8 core surfaces: /dashboard /intent /intake /architect /approvals /proof /live /records
-- 10 core data objects
-- Approval tier model (Tier 0–3)
-- Status: **LIVE-VERIFIED** (via P2.5)
+### P5 New Surfaces (LIVE-VERIFIED)
 
-### P1 — Hardened Control Core
-- D1-backed repository abstraction (all 10 domain objects)
-- API key auth middleware (SHA-256 comparison, safe)
-- Migrations 0001 (schema) and 0002 (seed data)
-- Status: **LIVE-VERIFIED**
+| Surface | URL | Auth | Status |
+|---|---|---|---|
+| Tenant Provisioning | `/tenants` | GET: open, POST: auth | ✅ LIVE-VERIFIED |
+| AI Orchestration Assist | `/ai-assist` | GET: open, POST: auth | ✅ LIVE-VERIFIED |
+| API Key Management | `/api-keys` | auth required | ✅ LIVE-VERIFIED |
+| Public API Gateway | `/api/v1/*` | key-based per endpoint | ✅ LIVE-VERIFIED |
 
-### P2 — Maturity Layer
-- Role-aware context (`src/lib/roles.ts`) — 6 platform roles
-- Session continuity discipline (`src/lib/continuity.ts`)
-- Governance boundaries (4 active boundaries seeded)
-- Operator notes (lightweight structured annotations)
-- `/continuity` surface
-- Migration 0003
-- Status: **LIVE-VERIFIED**
+### P5 Public API Endpoints
 
-### P2.5 — Production Hardening
-- Deployed to Cloudflare Pages production
-- D1 production database bound + verified
-- PLATFORM_API_KEY secret configured
-- `/health` and `/status` endpoints
-- Status: **LIVE-VERIFIED**
+| Endpoint | Auth | Description |
+|---|---|---|
+| `GET /api/v1/health` | None | API health check |
+| `GET /api/v1/docs` | None | API documentation |
+| `GET /api/v1/metrics` | Bearer API Key | Platform metrics |
+| `GET /api/v1/tenants` | Bearer API Key | Tenant list (sanitized) |
+| `GET /api/v1/sessions` | Bearer API Key | Active sessions (sanitized) |
+| `GET /api/v1/status` | Bearer API Key | Detailed status |
 
-### P3 — Operational Expansion
-- `/execution` — Execution Board (D1-backed work visibility)
-- `/connectors` — Connector Hub (governed, approval-aware, risk-classified)
-- Role registry visibility (`src/lib/roles.ts`)
-- Migration 0004 applied to production
-- Status: **LIVE-VERIFIED**
+### P5 New Libraries
 
-### P4 — Product Operationalization ← CURRENT
-- Role-differentiated workspaces `/w/:role` (5 roles)
-- Alert & Notification layer `/alerts` with badge on dashboard
-- Canon promotion workflow `/canon` (promote/reject with audit trail)
-- Product Lane Directory `/lanes` with Tier 2 approval gate
-- 4-step Onboarding wizard `/onboarding`
-- Cross-lane Reports `/reports` from real D1 metrics
-- alertSystem.ts for governance event alerts
-- Migration 0005 applied to production
-- Status: **LIVE-VERIFIED**
+| Module | Purpose |
+|---|---|
+| `src/lib/tenantContext.ts` | Tenant isolation middleware + assertTenantIsolation |
+| `src/lib/webhookDelivery.ts` | Governance-safe webhook runtime (no raw payload stored) |
+| `src/lib/aiAssist.ts` | AI assist with human confirmation gate + graceful degradation |
+| `src/lib/rateLimiter.ts` | Pluggable rate limiter (in-memory → KV-upgradeable) |
 
 ---
 
-## Platform Law (12 Non-Negotiables)
+## P0–P4 Surfaces (All Preserved — LIVE-VERIFIED)
 
-1. NO ROLE COLLAPSE
-2. INTENT FIRST
-3. NO FALSE VERIFICATION
-4. CANON IS EARNED
-5. GOVERNANCE LANE ≠ PRODUCT LANE
-6. NO SECRET EXPOSURE
-7. NO UNDOCUMENTED MEANINGFUL ACTIVITY
-8. LIVE STATE OVER GUESSWORK
-9. NO GREEN-FIELD REBUILD
-10. STATUS HONESTY
-11. SMALLEST HONEST DIFF
-12. PRODUCTION CLAIMS REQUIRE PROOF
+| Phase | Surfaces |
+|---|---|
+| P0 | `/dashboard`, `/intent`, `/intake`, `/architect`, `/approvals`, `/proof`, `/live`, `/records` |
+| P2 | `/continuity` |
+| P3 | `/execution`, `/connectors` |
+| P4 | `/workspace` (`/w/:role`), `/alerts`, `/canon`, `/lanes`, `/onboarding`, `/reports` |
+| Internal API | `/api/*` (platform internal, bearer auth) |
+
+---
+
+## Data Architecture
+
+### Storage: Cloudflare D1 — `sovereign-os-production`
+
+**Migrations Applied (local + production):** 0001 → 0002 → 0003 → 0004 → 0005 → 0006
+
+| Migration | Phase | Tables |
+|---|---|---|
+| 0001 | P0-P1 | intents, sessions, requests, approval_requests, work_items, proof_artifacts, decision_records, handoff_records, priority_items, canon_candidates, audit_log, api_keys |
+| 0002 | P1 seed | Seed data |
+| 0003 | P2 | session_continuity, governance_boundaries, operator_notes, role_assignments |
+| 0004 | P3 | execution_entries, connectors |
+| 0005 | P4 | product_lanes, platform_alerts, canon_promotions |
+| **0006** | **P5** | **tenants, webhook_delivery_log, ai_assist_log, public_api_keys, metrics_snapshots** |
+
+### P5 Tenant Isolation Model
+
+- Every resource can be tagged with `tenant_id`
+- Default tenant (`slug: 'default'`) holds all P0–P4 backward-compatible data
+- Cross-tenant reads return empty results (enforced at repo layer)
+- `assertTenantIsolation(requestingTenantId, resourceTenantId)` guards all cross-tenant access
+
+---
+
+## P5 Governance Non-Negotiables
+
+1. **Multi-Tenant Isolation:** `tenant_id` filtering enforced at repo layer. Default tenant backward-compatible.
+2. **Webhook Delivery:** Fire-and-log pattern. `payload_hash` (SHA-256) only stored — raw payloads never stored.
+3. **AI Assist:** Layer 2 only. Every output tagged `ai-generated`. Human confirmation gate mandatory. No auto-approval.
+4. **Public API Keys:** SHA-256 hash stored only. Raw key shown once at issuance.
+5. **Rate Limiting:** In-memory (PARTIAL). KV-backed is production target. `X-RateLimit-*` headers returned.
+6. **Secret Exposure:** Zero — no secrets, key hashes, or governance internals in public API responses.
+
+---
+
+## Platform Secrets Required
+
+| Secret | Purpose | Set Via |
+|---|---|---|
+| `PLATFORM_API_KEY` | Internal platform auth | `wrangler pages secret put PLATFORM_API_KEY --project-name sovereign-os-platform` |
+| `OPENAI_API_KEY` | AI assist (optional — graceful degradation if missing) | `wrangler pages secret put OPENAI_API_KEY --project-name sovereign-os-platform` |
+
+---
+
+## Quick Start
+
+```bash
+# Local development
+npm install
+cp .dev.vars.example .dev.vars  # Set PLATFORM_API_KEY
+npm run build
+npm run db:migrate:local
+pm2 start ecosystem.config.cjs
+
+# Test
+curl http://localhost:3000/health
+curl http://localhost:3000/api/v1/health
+```
+
+---
+
+## P5 Honest Classification
+
+| Feature | Classification | Notes |
+|---|---|---|
+| Multi-tenant core (/tenants) | ✅ LIVE-VERIFIED | Registration, approval, suspend. tenant_id isolation enforced at repo layer. |
+| Webhook delivery runtime | ✅ VERIFIED | Fire-and-log pattern. payload_hash only. triggerConnectorWebhooks wired. |
+| AI orchestration assist | ✅ LIVE-VERIFIED | Human gate mandatory. Degraded mode if OPENAI_API_KEY missing. Confirm/discard flow. |
+| Public API gateway (/api/v1/*) | ✅ LIVE-VERIFIED | 6 endpoints. Key issuance/revoke. Rate limit headers. |
+| Rate limiting | ⚠️ PARTIAL | In-memory (resets on deploy). KV-backed is production target. |
+| Tenant namespace routing (/t/:slug/*) | ⏳ PENDING | Header-based (X-Tenant-Slug) works. Path-based routing deferred to P6. |
+| P0–P4 regression | ✅ ZERO REGRESSION | All 18 P0–P4 surfaces pass verification. |
+| **Overall P5** | **LIVE-VERIFIED** | Production deployed. D1 migration 0006 applied. All core P5 surfaces live. |
+
+---
+
+## P6 Scope (Explicitly Deferred — Do NOT Build in P5)
+
+- White-label branding per tenant
+- Federated governance (cross-tenant policy)
+- Full AI autonomy (auto-approval)
+- Advanced observability stack (Prometheus, time-series)
+- Multi-region architecture
+- ABAC/RBAC expansion
+- Marketplace/ecosystem work
+- Tenant namespace path routing (`/t/:slug/*`)
+- KV-backed distributed rate limiting (upgrade from in-memory)
+- SSO/OAuth2 provider integration
+- Email/SMS external delivery
 
 ---
 
 ## Deployment
 
-- **Platform**: Cloudflare Pages + Workers
-- **Status**: ✅ P4 LIVE-VERIFIED
-- **Tech Stack**: Hono + TypeScript + Cloudflare D1 + TailwindCSS (CDN)
-- **Build Size**: 252.82 kB (50 modules)
-- **Last Updated**: 2026-04-17
-
----
-
-## Pre-P5 Handoff Note
-
-P4 is LIVE-VERIFIED. P5 may begin only after confirming P4 baseline.
-
-**P5 Territory (do not start in P4):**
-- Multi-tenant platform architecture
-- External webhook delivery / integration runtime
-- AI agent orchestration with automation
-- Enterprise SSO / OAuth2 provider
-- Real product vertical business logic inside platform core
-- Advanced analytics and time-series reporting
-- Public API gateway with rate limiting
-
-**P5 Readiness Checklist:**
-- [ ] Verify all 18 P4 surfaces return correct responses in production
-- [ ] Read pre-P5 handoff document in /records → Handoffs tab
-- [ ] Confirm role isolation works in production (test with role keys)
-- [ ] Confirm D1 migration 0005 is applied in production ✅
-- [ ] Confirm no P4 feature is still PARTIAL before starting P5
+**Platform:** Cloudflare Pages  
+**Last Deploy:** 2026-04-17  
+**Git:** https://github.com/ganihypha/Sovereign-os-platform (commit: 116dbc8)  
+**Tech Stack:** Hono 4.x + TypeScript + Cloudflare D1 + Cloudflare Workers
