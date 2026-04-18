@@ -1,15 +1,18 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — PUBLIC API GATEWAY v1 (P6 UPGRADE)
+// SOVEREIGN OS PLATFORM — PUBLIC API GATEWAY v1 (P7 UPGRADE)
 // External API gateway with KV-backed distributed rate limiting.
 // Auth: Bearer token (public API key — separate from internal role keys)
 // Security: Never expose governance internals, secrets, or role details
 // Rate limiting: KV-backed distributed (P6 upgrade from in-memory PARTIAL)
+// P7: /api/v1/metrics-history — time-series from metrics_snapshots
+//     /api/v1/metrics-snapshot — trigger manual snapshot write
 // ============================================================
 
 import { Hono } from 'hono'
 import type { Env } from '../index'
 import { createRepo } from '../lib/repo'
 import { checkRateLimit, rateLimitHeaders } from '../lib/rateLimiter'
+import { takeMetricsSnapshot, getMetricsHistory } from '../lib/metricsService'
 
 // ---- Hash helper (Web Crypto) ----
 async function sha256(data: string): Promise<string> {
@@ -37,8 +40,8 @@ export function createApiV1Route() {
     return c.json({
       status: 'ok',
       platform: 'Sovereign OS Platform',
-      version: '0.6.0-P6',
-      phase: 'P6 — Advanced Integration & Observability',
+      version: '0.7.0-P7',
+      phase: 'P7 — Enterprise Governance Expansion',
       api_version: 'v1',
       timestamp: new Date().toISOString(),
     })
@@ -48,7 +51,7 @@ export function createApiV1Route() {
   app.get('/docs', (c) => {
     return c.json({
       api: 'Sovereign OS Platform Public API v1',
-      version: '0.5.0-P5',
+      version: '0.7.0-P7',
       authentication: 'Bearer token (issue via /api-keys surface)',
       base_url: '/api/v1',
       endpoints: {
@@ -180,12 +183,57 @@ export function createApiV1Route() {
 
     return c.json({
       status: 'operational',
-      version: '0.6.0-P6',
-      phase: 'P6 — Advanced Integration & Observability',
+      version: '0.7.0-P7',
+      phase: 'P7 — Enterprise Governance Expansion',
       persistence: repo.isPersistent ? 'd1-persistent' : 'in-memory',
       metrics,
       timestamp: new Date().toISOString(),
     }, 200, rateLimitHeaders(rateResult))
+  })
+
+  // GET /api/v1/metrics-history — Time-series metrics from snapshots (P7)
+  app.get('/metrics-history', requirePublicKey, async (c) => {
+    const repo = createRepo(c.env.DB)
+    const rateResult = (c as unknown as Record<string, unknown>)['rateLimitResult'] as ReturnType<typeof checkRateLimit>
+
+    const snapshotType = (c.req.query('type') ?? 'daily') as 'hourly' | 'daily' | 'weekly'
+    const tenantId = c.req.query('tenant_id') ?? 'tenant-default'
+    const limit = Math.min(parseInt(c.req.query('limit') ?? '30'), 90)
+
+    const history = await getMetricsHistory(repo, tenantId, snapshotType, limit)
+
+    return c.json({
+      history,
+      count: history.length,
+      snapshot_type: snapshotType,
+      tenant_id: tenantId,
+      timestamp: new Date().toISOString(),
+    }, 200, rateLimitHeaders(rateResult))
+  })
+
+  // POST /api/v1/metrics-snapshot — Trigger manual snapshot write (P7)
+  app.post('/metrics-snapshot', requirePublicKey, async (c) => {
+    const repo = createRepo(c.env.DB)
+    const rateResult = (c as unknown as Record<string, unknown>)['rateLimitResult'] as ReturnType<typeof checkRateLimit>
+    const apiKey = (c as unknown as Record<string, unknown>)['publicApiKey'] as { role_scope: string }
+
+    // Only readwrite keys can trigger snapshot writes
+    if (apiKey.role_scope !== 'readwrite') {
+      return c.json({ error: 'readwrite scope required for snapshot writes' }, 403, rateLimitHeaders(rateResult))
+    }
+
+    const body = await c.req.json().catch(() => ({})) as { tenant_id?: string; snapshot_type?: string }
+    const tenantId = body.tenant_id ?? 'tenant-default'
+    const snapshotType = (body.snapshot_type ?? 'daily') as 'hourly' | 'daily' | 'weekly'
+
+    const result = await takeMetricsSnapshot(repo, { tenantId, snapshotType })
+
+    return c.json({
+      ok: result.ok,
+      period_label: result.period_label,
+      snapshot_id: result.id,
+      timestamp: new Date().toISOString(),
+    }, result.ok ? 200 : 500, rateLimitHeaders(rateResult))
   })
 
   return app

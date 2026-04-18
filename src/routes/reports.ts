@@ -1,11 +1,10 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — CROSS-LANE REPORTS (P6 UPGRADE)
+// SOVEREIGN OS PLATFORM — CROSS-LANE REPORTS (P7 UPGRADE)
 // P4: Real D1-aggregated metrics. No fake numbers.
 // P6: Added Chart.js visual observability charts.
-//     - Execution status donut chart
-//     - Session timeline bar chart
-//     - Approval funnel bar chart
-//     - Connector health pie chart
+// P7: Metrics snapshot time-series (metrics_snapshots table).
+//     Timeline chart upgraded to use real snapshots.
+//     Auto-triggers daily snapshot on /reports load.
 // All metrics computed from actual D1 queries.
 // /reports — visual dashboard with charts
 // /api/reports — JSON metrics endpoint
@@ -15,6 +14,7 @@ import { Hono } from 'hono'
 import { layout } from '../layout'
 import { createRepo } from '../lib/repo'
 import type { Env } from '../index'
+import { takeMetricsSnapshot, getMetricsHistory } from '../lib/metricsService'
 
 function metricCard(label: string, value: number, sub: string, color: string): string {
   return `
@@ -46,6 +46,9 @@ export function createReportsRoute() {
   // GET /reports — visual dashboard with Chart.js observability charts
   route.get('/', async (c) => {
     const repo = createRepo(c.env.DB)
+
+    // P7: Auto-trigger daily snapshot (fire-and-forget — never blocks page)
+    takeMetricsSnapshot(repo, { tenantId: 'tenant-default', snapshotType: 'daily' }).catch(() => {})
 
     // Fetch all real data from D1
     const [
@@ -106,6 +109,19 @@ export function createReportsRoute() {
       const dateStr = d.toISOString().slice(0, 10)
       sessionCountByDay.push(sessions.filter(s => s.created_at && s.created_at.startsWith(dateStr)).length)
     }
+
+    // P7: Fetch metrics_snapshots time-series for timeline chart
+    const snapshotHistory = await getMetricsHistory(repo, 'tenant-default', 'daily', 30)
+    const hasSnapshots = snapshotHistory.length > 0
+    const snapshotLabels = hasSnapshots
+      ? snapshotHistory.map(s => s.period_label)
+      : last7Days
+    const snapshotSessions = hasSnapshots
+      ? snapshotHistory.map(s => s.active_sessions)
+      : sessionCountByDay
+    const snapshotExecs = hasSnapshots
+      ? snapshotHistory.map(s => s.running_executions)
+      : sessionCountByDay.map(() => 0)
 
     const content = `
     <!-- Chart.js CDN — P6 Observability Charts -->
@@ -179,10 +195,17 @@ export function createReportsRoute() {
       </div>
     </div>
 
-    <!-- P6 CHART ROW 2 — Session Timeline -->
+    <!-- P6 CHART ROW 2 — Session Timeline (P7: upgraded to use metrics_snapshots) -->
     <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:24px">
-      <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px">Session Activity — Last 7 Days</div>
-      <div style="font-size:11px;color:var(--text3);margin-bottom:16px">Sessions created per day (from D1 timestamps)</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+        <div style="font-size:13px;font-weight:600;color:var(--text)">Platform Metrics Timeline</div>
+        <span style="font-size:10px;padding:2px 8px;border-radius:3px;${hasSnapshots ? 'background:rgba(34,197,94,0.1);color:#22c55e;border:1px solid rgba(34,197,94,0.3)' : 'background:rgba(245,158,11,0.1);color:#f59e0b;border:1px solid rgba(245,158,11,0.3)'}">
+          ${hasSnapshots ? `● ${snapshotHistory.length} snapshots from D1` : '⚠ Using session timestamps (no snapshots yet)'}
+        </span>
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:16px">
+        ${hasSnapshots ? 'Real metrics_snapshots time-series — P7 LIVE' : 'Visit /reports daily to accumulate snapshots for richer timeline'}
+      </div>
       <canvas id="sessionTimelineChart" height="80"></canvas>
     </div>
 
@@ -231,6 +254,7 @@ export function createReportsRoute() {
       No hardcoded or synthetic data exists in this report. Metrics refresh on each page load.
       Use <a href="/api/reports" style="color:var(--accent)">/api/reports</a> for programmatic access.
       <span style="color:#22c55e;margin-left:8px">● P6 Chart.js observability layer active.</span>
+      <span style="color:#a855f7;margin-left:8px">● P7 metrics_snapshots time-series active (${snapshotHistory.length} snapshots).</span>
     </div>
 
     <!-- P6 Chart.js Initialization Scripts -->
@@ -311,26 +335,37 @@ export function createReportsRoute() {
         })
       }
 
-      // 4. Session Timeline Bar (last 7 days)
+      // 4. Platform Metrics Timeline — P7 real metrics_snapshots
       const sessCtx = document.getElementById('sessionTimelineChart')
       if (sessCtx) {
         new Chart(sessCtx, {
           type: 'bar',
           data: {
-            labels: ${JSON.stringify(last7Days)},
-            datasets: [{
-              label: 'Sessions Created',
-              data: ${JSON.stringify(sessionCountByDay)},
-              backgroundColor: 'rgba(79,142,247,0.7)',
-              borderColor: '#4f8ef7',
-              borderWidth: 1,
-              borderRadius: 4,
-              borderSkipped: false
-            }]
+            labels: ${JSON.stringify(snapshotLabels)},
+            datasets: [
+              {
+                label: 'Active Sessions',
+                data: ${JSON.stringify(snapshotSessions)},
+                backgroundColor: 'rgba(79,142,247,0.7)',
+                borderColor: '#4f8ef7',
+                borderWidth: 1,
+                borderRadius: 4,
+                borderSkipped: false
+              },
+              {
+                label: 'Running Executions',
+                data: ${JSON.stringify(snapshotExecs)},
+                backgroundColor: 'rgba(34,211,238,0.5)',
+                borderColor: '#22d3ee',
+                borderWidth: 1,
+                borderRadius: 4,
+                borderSkipped: false
+              }
+            ]
           },
           options: {
             responsive: true,
-            plugins: { legend: { display: false } },
+            plugins: { legend: { display: true, labels: { color: '#9aa3b2', boxWidth: 12, font: { size: 10 } } } },
             scales: {
               x: { grid: { display: false }, ticks: { color: '#9aa3b2' } },
               y: { grid: { color: '#2a2d35' }, ticks: { color: '#9aa3b2', stepSize: 1 }, beginAtZero: true }

@@ -28,7 +28,10 @@ import type {
   WebhookDeliveryLog, WebhookDeliveryStatus,
   AiAssistLog, AiAssistType,
   PublicApiKey, ApiKeyScope,
-  MetricsSnapshot
+  MetricsSnapshot,
+  // P7 types
+  AlertDelivery, AlertDeliveryStatus,
+  TenantBranding, SsoConfig, SsoProvider
 } from '../types'
 
 // ---- Helpers ----
@@ -68,6 +71,10 @@ const mem = {
   aiAssistLogs: [] as AiAssistLog[],
   publicApiKeys: [] as PublicApiKey[],
   metricsSnapshots: [] as MetricsSnapshot[],
+  // P7 additions
+  alertDeliveries: [] as AlertDelivery[],
+  tenantBrandings: [] as TenantBranding[],
+  ssoConfigs: [] as SsoConfig[],
   _seeded: false
 }
 
@@ -1185,6 +1192,182 @@ function createD1Repo(DB: D1Database) {
       await DB.prepare('UPDATE public_api_keys SET request_count=request_count+1,last_used_at=? WHERE key_hash=?')
         .bind(now(), keyHash).run()
     },
+
+    // ============================================================
+    // P7: Alert Deliveries
+    // ============================================================
+    async getAlertDeliveries(alertId?: string): Promise<AlertDelivery[]> {
+      const sql = alertId
+        ? 'SELECT * FROM alert_deliveries WHERE alert_id=? ORDER BY created_at DESC LIMIT 50'
+        : 'SELECT * FROM alert_deliveries ORDER BY created_at DESC LIMIT 100'
+      const results = alertId
+        ? await DB.prepare(sql).bind(alertId).all()
+        : await DB.prepare(sql).all()
+      return (results.results ?? []).map(r => {
+        const row = r as Record<string, unknown>
+        return {
+          id: String(row.id ?? ''),
+          alert_id: String(row.alert_id ?? ''),
+          tenant_id: String(row.tenant_id ?? 'default'),
+          recipient_email: String(row.recipient_email ?? ''),
+          delivery_status: String(row.delivery_status ?? 'pending') as AlertDeliveryStatus,
+          provider: String(row.provider ?? ''),
+          provider_message_id: String(row.provider_message_id ?? ''),
+          error_message: String(row.error_message ?? ''),
+          sent_at: row.sent_at ? String(row.sent_at) : null,
+          created_at: String(row.created_at ?? now()),
+        }
+      })
+    },
+    async createAlertDelivery(data: Omit<AlertDelivery, 'id' | 'created_at'>): Promise<AlertDelivery> {
+      const item: AlertDelivery = { ...data, id: 'adel-' + uid(), created_at: now() }
+      await DB.prepare('INSERT INTO alert_deliveries (id,alert_id,tenant_id,recipient_email,delivery_status,provider,provider_message_id,error_message,sent_at,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)')
+        .bind(item.id, item.alert_id, item.tenant_id, item.recipient_email, item.delivery_status, item.provider, item.provider_message_id, item.error_message, item.sent_at, item.created_at)
+        .run()
+      return item
+    },
+
+    // ============================================================
+    // P7: Tenant Branding
+    // ============================================================
+    async getTenantBranding(tenantId: string): Promise<TenantBranding | undefined> {
+      const r = await DB.prepare('SELECT * FROM tenant_branding WHERE tenant_id=?').bind(tenantId).first()
+      if (!r) return undefined
+      const row = r as Record<string, unknown>
+      return {
+        id: String(row.id ?? ''),
+        tenant_id: String(row.tenant_id ?? ''),
+        brand_name: String(row.brand_name ?? ''),
+        logo_url: String(row.logo_url ?? ''),
+        primary_color: String(row.primary_color ?? '#4f8ef7'),
+        secondary_color: String(row.secondary_color ?? '#1a1d27'),
+        accent_color: String(row.accent_color ?? '#22c55e'),
+        text_color: String(row.text_color ?? '#e2e8f0'),
+        bg_color: String(row.bg_color ?? '#0d0f14'),
+        font_family: String(row.font_family ?? 'system-ui, sans-serif'),
+        css_vars: String(row.css_vars ?? '{}'),
+        custom_footer: String(row.custom_footer ?? ''),
+        created_at: String(row.created_at ?? now()),
+        updated_at: String(row.updated_at ?? now()),
+      }
+    },
+    async upsertTenantBranding(data: Omit<TenantBranding, 'id' | 'created_at' | 'updated_at'>): Promise<TenantBranding> {
+      const existing = await DB.prepare('SELECT id FROM tenant_branding WHERE tenant_id=?').bind(data.tenant_id).first()
+      const ts = now()
+      if (existing) {
+        const id = String((existing as Record<string,unknown>).id)
+        await DB.prepare('UPDATE tenant_branding SET brand_name=?,logo_url=?,primary_color=?,secondary_color=?,accent_color=?,text_color=?,bg_color=?,font_family=?,css_vars=?,custom_footer=?,updated_at=? WHERE tenant_id=?')
+          .bind(data.brand_name, data.logo_url, data.primary_color, data.secondary_color, data.accent_color, data.text_color, data.bg_color, data.font_family, data.css_vars, data.custom_footer, ts, data.tenant_id)
+          .run()
+        return { ...data, id, created_at: ts, updated_at: ts }
+      } else {
+        const id = 'brand-' + uid()
+        await DB.prepare('INSERT INTO tenant_branding (id,tenant_id,brand_name,logo_url,primary_color,secondary_color,accent_color,text_color,bg_color,font_family,css_vars,custom_footer,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+          .bind(id, data.tenant_id, data.brand_name, data.logo_url, data.primary_color, data.secondary_color, data.accent_color, data.text_color, data.bg_color, data.font_family, data.css_vars, data.custom_footer, ts, ts)
+          .run()
+        return { ...data, id, created_at: ts, updated_at: ts }
+      }
+    },
+
+    // ============================================================
+    // P7: SSO Config
+    // ============================================================
+    async getSsoConfig(tenantId: string): Promise<SsoConfig | undefined> {
+      const r = await DB.prepare('SELECT * FROM sso_configs WHERE tenant_id=?').bind(tenantId).first()
+      if (!r) return undefined
+      const row = r as Record<string, unknown>
+      return {
+        id: String(row.id ?? ''),
+        tenant_id: String(row.tenant_id ?? ''),
+        provider: String(row.provider ?? 'none') as SsoProvider,
+        enabled: Number(row.enabled ?? 0) === 1,
+        client_id: String(row.client_id ?? ''),
+        domain: String(row.domain ?? ''),
+        redirect_uri: String(row.redirect_uri ?? ''),
+        scopes: String(row.scopes ?? 'openid profile email'),
+        pkce_enabled: Number(row.pkce_enabled ?? 1) === 1,
+        config_notes: String(row.config_notes ?? ''),
+        created_by: String(row.created_by ?? ''),
+        created_at: String(row.created_at ?? now()),
+        updated_at: String(row.updated_at ?? now()),
+      }
+    },
+    async upsertSsoConfig(data: Omit<SsoConfig, 'id' | 'created_at' | 'updated_at'>): Promise<SsoConfig> {
+      const existing = await DB.prepare('SELECT id FROM sso_configs WHERE tenant_id=?').bind(data.tenant_id).first()
+      const ts = now()
+      if (existing) {
+        const id = String((existing as Record<string,unknown>).id)
+        await DB.prepare('UPDATE sso_configs SET provider=?,enabled=?,client_id=?,domain=?,redirect_uri=?,scopes=?,pkce_enabled=?,config_notes=?,updated_at=? WHERE tenant_id=?')
+          .bind(data.provider, data.enabled ? 1 : 0, data.client_id, data.domain, data.redirect_uri, data.scopes, data.pkce_enabled ? 1 : 0, data.config_notes, ts, data.tenant_id)
+          .run()
+        return { ...data, id, created_at: ts, updated_at: ts }
+      } else {
+        const id = 'sso-' + uid()
+        await DB.prepare('INSERT INTO sso_configs (id,tenant_id,provider,enabled,client_id,domain,redirect_uri,scopes,pkce_enabled,config_notes,created_by,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+          .bind(id, data.tenant_id, data.provider, data.enabled ? 1 : 0, data.client_id, data.domain, data.redirect_uri, data.scopes, data.pkce_enabled ? 1 : 0, data.config_notes, data.created_by, ts, ts)
+          .run()
+        return { ...data, id, created_at: ts, updated_at: ts }
+      }
+    },
+
+    // ============================================================
+    // P7: Metrics Snapshots (time-series)
+    // ============================================================
+    async getMetricsHistory(tenantId: string, snapshotType: string, limit: number = 30): Promise<MetricsSnapshot[]> {
+      const results = await DB.prepare('SELECT * FROM metrics_snapshots WHERE tenant_id=? AND snapshot_type=? ORDER BY created_at ASC LIMIT ?')
+        .bind(tenantId, snapshotType, limit).all()
+      return (results.results ?? []).map(r => {
+        const row = r as Record<string, unknown>
+        return {
+          id: String(row.id ?? ''),
+          tenant_id: String(row.tenant_id ?? ''),
+          snapshot_type: String(row.snapshot_type ?? 'daily') as MetricsSnapshot['snapshot_type'],
+          period_label: String(row.period_label ?? ''),
+          total_sessions: Number(row.total_sessions ?? 0),
+          active_sessions: Number(row.active_sessions ?? 0),
+          pending_approvals: Number(row.pending_approvals ?? 0),
+          running_executions: Number(row.running_executions ?? 0),
+          active_connectors: Number(row.active_connectors ?? 0),
+          verified_proofs: Number(row.verified_proofs ?? 0),
+          active_lanes: Number(row.active_lanes ?? 0),
+          unread_alerts: Number(row.unread_alerts ?? 0),
+          canon_candidates: Number(row.canon_candidates ?? 0),
+          snapshot_data: String(row.snapshot_data ?? '{}'),
+          created_at: String(row.created_at ?? now()),
+        }
+      })
+    },
+    async getMetricsSnapshotByPeriod(tenantId: string, snapshotType: string, periodLabel: string): Promise<MetricsSnapshot | undefined> {
+      const r = await DB.prepare('SELECT * FROM metrics_snapshots WHERE tenant_id=? AND snapshot_type=? AND period_label=? LIMIT 1')
+        .bind(tenantId, snapshotType, periodLabel).first()
+      if (!r) return undefined
+      const row = r as Record<string, unknown>
+      return {
+        id: String(row.id ?? ''),
+        tenant_id: String(row.tenant_id ?? ''),
+        snapshot_type: String(row.snapshot_type ?? 'daily') as MetricsSnapshot['snapshot_type'],
+        period_label: String(row.period_label ?? ''),
+        total_sessions: Number(row.total_sessions ?? 0),
+        active_sessions: Number(row.active_sessions ?? 0),
+        pending_approvals: Number(row.pending_approvals ?? 0),
+        running_executions: Number(row.running_executions ?? 0),
+        active_connectors: Number(row.active_connectors ?? 0),
+        verified_proofs: Number(row.verified_proofs ?? 0),
+        active_lanes: Number(row.active_lanes ?? 0),
+        unread_alerts: Number(row.unread_alerts ?? 0),
+        canon_candidates: Number(row.canon_candidates ?? 0),
+        snapshot_data: String(row.snapshot_data ?? '{}'),
+        created_at: String(row.created_at ?? now()),
+      }
+    },
+    async createMetricsSnapshot(data: Omit<MetricsSnapshot, 'id' | 'created_at'>): Promise<string> {
+      const id = 'snap-' + uid()
+      const ts = now()
+      await DB.prepare('INSERT INTO metrics_snapshots (id,tenant_id,snapshot_type,period_label,total_sessions,active_sessions,pending_approvals,running_executions,active_connectors,verified_proofs,active_lanes,unread_alerts,canon_candidates,snapshot_data,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+        .bind(id, data.tenant_id, data.snapshot_type, data.period_label, data.total_sessions, data.active_sessions, data.pending_approvals, data.running_executions, data.active_connectors, data.verified_proofs, data.active_lanes, data.unread_alerts, data.canon_candidates, (data as Record<string,unknown>).snapshot_data ?? '{}', ts)
+        .run()
+      return id
+    },
   }
 }
 
@@ -1484,6 +1667,61 @@ function createMemRepo() {
     async incrementPublicApiKeyUsage(keyHash: string) {
       const idx = mem.publicApiKeys.findIndex(k => k.key_hash === keyHash)
       if (idx >= 0) { mem.publicApiKeys[idx].request_count++; mem.publicApiKeys[idx].last_used_at = now() }
+    },
+
+    // P7: Alert Deliveries (in-memory)
+    async getAlertDeliveries(alertId?: string) {
+      if (alertId) return mem.alertDeliveries.filter(d => d.alert_id === alertId)
+      return [...mem.alertDeliveries]
+    },
+    async createAlertDelivery(data: Omit<AlertDelivery, 'id' | 'created_at'>) {
+      const item: AlertDelivery = { ...data, id: 'adel-' + uid(), created_at: now() }
+      mem.alertDeliveries.push(item); return item
+    },
+
+    // P7: Tenant Branding (in-memory)
+    async getTenantBranding(tenantId: string) {
+      return mem.tenantBrandings.find(b => b.tenant_id === tenantId)
+    },
+    async upsertTenantBranding(data: Omit<TenantBranding, 'id' | 'created_at' | 'updated_at'>) {
+      const existing = mem.tenantBrandings.find(b => b.tenant_id === data.tenant_id)
+      const ts = now()
+      if (existing) {
+        Object.assign(existing, data, { updated_at: ts })
+        return existing
+      }
+      const item: TenantBranding = { ...data, id: 'brand-' + uid(), created_at: ts, updated_at: ts }
+      mem.tenantBrandings.push(item); return item
+    },
+
+    // P7: SSO Config (in-memory)
+    async getSsoConfig(tenantId: string) {
+      return mem.ssoConfigs.find(s => s.tenant_id === tenantId)
+    },
+    async upsertSsoConfig(data: Omit<SsoConfig, 'id' | 'created_at' | 'updated_at'>) {
+      const existing = mem.ssoConfigs.find(s => s.tenant_id === data.tenant_id)
+      const ts = now()
+      if (existing) {
+        Object.assign(existing, data, { updated_at: ts })
+        return existing
+      }
+      const item: SsoConfig = { ...data, id: 'sso-' + uid(), created_at: ts, updated_at: ts }
+      mem.ssoConfigs.push(item); return item
+    },
+
+    // P7: Metrics Snapshots time-series (in-memory)
+    async getMetricsHistory(tenantId: string, snapshotType: string, limit: number = 30) {
+      return mem.metricsSnapshots
+        .filter(s => s.tenant_id === tenantId && s.snapshot_type === snapshotType)
+        .slice(-limit)
+    },
+    async getMetricsSnapshotByPeriod(tenantId: string, snapshotType: string, periodLabel: string) {
+      return mem.metricsSnapshots.find(s => s.tenant_id === tenantId && s.snapshot_type === snapshotType && s.period_label === periodLabel)
+    },
+    async createMetricsSnapshot(data: Omit<MetricsSnapshot, 'id' | 'created_at'>) {
+      const item: MetricsSnapshot = { ...data, id: 'snap-' + uid(), created_at: now() }
+      mem.metricsSnapshots.push(item)
+      return item.id
     },
   }
 }

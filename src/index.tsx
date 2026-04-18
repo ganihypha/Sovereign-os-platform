@@ -1,6 +1,6 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — MAIN ENTRY (P6 — ADVANCED INTEGRATION & OBSERVABILITY)
-// Version: 0.6.0-P6
+// SOVEREIGN OS PLATFORM — MAIN ENTRY (P7 — ENTERPRISE GOVERNANCE EXPANSION)
+// Version: 0.7.0-P7
 // Platform: Cloudflare Pages + Workers
 // Hono Framework — Edge-first
 // ============================================================
@@ -42,11 +42,19 @@ import { createApiV1Route } from './routes/apiv1'
 // Route import — P3 Roles Registry
 import { createRolesRoute } from './routes/roles'
 
+// Route imports — P7 new surfaces
+import { createSsoRoute } from './routes/sso'
+import { createBrandingRoute } from './routes/branding'
+
 export type Env = {
   DB?: D1Database
   RATE_LIMITER_KV?: KVNamespace   // P6: KV-backed distributed rate limiter (optional — falls back to in-memory)
   PLATFORM_API_KEY?: string
   OPENAI_API_KEY?: string         // P5: optional — graceful degradation if missing
+  RESEND_API_KEY?: string         // P7: optional — email delivery (graceful degradation)
+  SENDGRID_API_KEY?: string       // P7: optional — email delivery fallback
+  AUTH0_CLIENT_SECRET?: string    // P7: optional — SSO Auth0 (never logged/returned)
+  CLERK_SECRET_KEY?: string       // P7: optional — SSO Clerk (never logged/returned)
 }
 
 const app = new Hono<{ Bindings: Env }>()
@@ -121,9 +129,14 @@ app.route('/api-keys', createApiKeysRoute())
 // P5: Public API Gateway v1 (no auth middleware needed — handled internally)
 app.route('/api/v1', createApiV1Route())
 
+// P7: SSO / OAuth2 Integration
+app.route('/auth/sso', createSsoRoute())
+
+// P7: Tenant White-Label Branding
+app.route('/branding', createBrandingRoute())
+
 // P6: Tenant namespace path routing — /t/:slug/*
-// createTenantMiddleware resolves tenant context from path slug
-// All /t/:slug/* requests are routed to the standard surfaces with tenant context injected
+// P7: Injects tenant branding CSS into routing context
 app.use('/t/:slug/*', async (c, next) => {
   const { createRepo } = await import('./lib/repo')
   const { createTenantMiddleware } = await import('./lib/tenantContext')
@@ -148,7 +161,7 @@ app.get('/t/:slug/dashboard', async (c) => {
 app.get('/t/:slug/:surface', (c) => {
   const slug = c.req.param('slug')
   const surface = c.req.param('surface')
-  const allowed = ['dashboard','intent','intake','architect','approvals','proof','live','records','continuity','execution','connectors','roles','workspace','alerts','canon','lanes','onboarding','reports']
+  const allowed = ['dashboard','intent','intake','architect','approvals','proof','live','records','continuity','execution','connectors','roles','workspace','alerts','canon','lanes','onboarding','reports','branding','sso']
   if (!allowed.includes(surface)) {
     return c.json({ error: 'Unknown surface', tenant: slug, surface }, 404)
   }
@@ -177,11 +190,13 @@ app.get('/health', (c) => {
   return c.json({
     status: 'ok',
     platform: 'Sovereign OS Platform',
-    version: '0.6.0-P6',
-    phase: 'P6 — Advanced Integration & Observability',
+    version: '0.7.0-P7',
+    phase: 'P7 — Enterprise Governance Expansion',
     persistence: repo.isPersistent ? 'd1' : 'in-memory',
     auth_configured: !!c.env.PLATFORM_API_KEY,
     kv_rate_limiter: !!c.env.RATE_LIMITER_KV ? 'kv-enforced' : 'in-memory-partial',
+    email_delivery: !!(c.env.RESEND_API_KEY || c.env.SENDGRID_API_KEY) ? 'configured' : 'not-configured',
+    sso: !!(c.env.AUTH0_CLIENT_SECRET || c.env.CLERK_SECRET_KEY) ? 'configured' : 'not-configured',
     timestamp: new Date().toISOString(),
   })
 })
@@ -199,11 +214,13 @@ app.get('/status', async (c) => {
     return c.json({
       status: 'operational',
       platform: 'Sovereign OS Platform',
-      version: '0.6.0-P6',
-      phase: 'P6 — Advanced Integration & Observability',
+      version: '0.7.0-P7',
+      phase: 'P7 — Enterprise Governance Expansion',
       persistence: repo.isPersistent ? 'd1-persistent' : 'in-memory-ephemeral',
       auth_configured: !!c.env.PLATFORM_API_KEY,
       kv_rate_limiter: !!c.env.RATE_LIMITER_KV ? 'kv-enforced' : 'in-memory-partial',
+      email_delivery: !!(c.env.RESEND_API_KEY || c.env.SENDGRID_API_KEY) ? 'configured' : 'not-configured',
+      sso: !!(c.env.AUTH0_CLIENT_SECRET || c.env.CLERK_SECRET_KEY) ? 'configured' : 'not-configured',
       surfaces: {
         dashboard: 'active',
         intent: 'active',
@@ -229,6 +246,8 @@ app.get('/status', async (c) => {
         api_v1: 'active',          // P5
         api: 'active',
         tenant_routing: 'active',  // P6 — /t/:slug/* path routing
+        sso: 'active',             // P7 — /auth/sso
+        branding: 'active',        // P7 — /branding
       },
       counts: {
         sessions: sessions.length,
@@ -243,7 +262,7 @@ app.get('/status', async (c) => {
     return c.json({
       status: 'degraded',
       platform: 'Sovereign OS Platform',
-      version: '0.6.0-P6',
+      version: '0.7.0-P7',
       error: 'Could not read platform state',
       persistence: 'unknown',
       timestamp: new Date().toISOString(),

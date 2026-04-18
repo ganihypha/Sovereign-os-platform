@@ -32,6 +32,10 @@ export function layout(title: string, content: string, activePage: string = '', 
   const navP6 = [
     { path: '/reports', label: 'Observability', icon: '⧠', badge: 'P6' }, // P6 — upgraded
   ]
+  const navP7 = [
+    { path: '/branding', label: 'Branding', icon: '◈', badge: 'P7' },      // P7 — white-label
+    { path: '/auth/sso', label: 'SSO', icon: '⊕', badge: 'P7' },           // P7 — OAuth2/SSO
+  ]
 
   const navItems = navP0P3.map(n => {
     const isActive = activePage === n.path
@@ -56,6 +60,14 @@ export function layout(title: string, content: string, activePage: string = '', 
   }).join('') + `<div class="nav-section-label">P6</div>` + navP6.map(n => {
     const isActive = activePage === n.path
     const badgeHtml = n.badge ? `<span style="background:#22c55e;color:#000;border-radius:10px;padding:0 5px;font-size:9px;font-weight:700;margin-left:auto">${n.badge}</span>` : ''
+    return `<a href="${n.path}" class="nav-item${isActive ? ' active' : ''}">
+      <span class="nav-icon">${n.icon}</span>
+      <span class="nav-label">${n.label}</span>
+      ${badgeHtml}
+    </a>`
+  }).join('') + `<div class="nav-section-label">P7</div>` + navP7.map(n => {
+    const isActive = activePage === n.path || activePage.startsWith(n.path)
+    const badgeHtml = `<span style="background:#a855f7;color:#fff;border-radius:10px;padding:0 5px;font-size:9px;font-weight:700;margin-left:auto">${n.badge}</span>`
     return `<a href="${n.path}" class="nav-item${isActive ? ' active' : ''}">
       <span class="nav-icon">${n.icon}</span>
       <span class="nav-label">${n.label}</span>
@@ -352,11 +364,11 @@ export function layout(title: string, content: string, activePage: string = '', 
   <aside class="sidebar">
     <div class="sidebar-brand">
       <div class="brand-name">Sovereign OS</div>
-      <div class="brand-sub">Operating Platform v0.6</div>
+      <div class="brand-sub">Operating Platform v0.7</div>
     </div>
     <nav class="nav-section">${navItems}</nav>
     <div class="sidebar-footer">
-      P6 — Observability Active<br>
+      P7 — Enterprise Governance Expansion<br>
       No role collapse · No false verify
     </div>
   </aside>

@@ -1,7 +1,9 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — ALERTS ROUTE (P4)
+// SOVEREIGN OS PLATFORM — ALERTS ROUTE (P7 UPGRADE)
 // Alert & Notification center.
 // All alerts come from real state changes — no synthetic events.
+// P7: Email delivery wired via dispatchAlertEmail.
+//     Delivery status logged in alert_deliveries table.
 // ============================================================
 
 import { Hono } from 'hono'
@@ -10,6 +12,7 @@ import { createRepo } from '../lib/repo'
 import { isAuthenticated } from '../lib/auth'
 import type { Env } from '../index'
 import type { PlatformAlert } from '../types'
+import { dispatchAlertEmail } from '../lib/emailDelivery'
 
 const SEVERITY_COLOR: Record<string, string> = {
   info: '#4f8ef7',
@@ -164,6 +167,62 @@ export function createAlertsRoute() {
     const onlyUnread = c.req.query('unread') === 'true'
     const alerts = await repo.getAlerts(onlyUnread)
     return c.json({ alerts, count: alerts.length })
+  })
+
+  // API: GET alert delivery log (P7)
+  route.get('/api/deliveries', async (c) => {
+    const repo = createRepo(c.env.DB)
+    const alertId = c.req.query('alert_id')
+    const deliveries = await repo.getAlertDeliveries(alertId)
+    return c.json({ deliveries, count: deliveries.length })
+  })
+
+  // API: POST create alert + dispatch email (P7)
+  // Used by internal platform events — not a public endpoint
+  route.post('/api/emit', async (c) => {
+    const isAuth = await isAuthenticated(c, c.env)
+    if (!isAuth) return c.json({ error: 'AUTH_REQUIRED' }, 401)
+
+    const repo = createRepo(c.env.DB)
+    const body = await c.req.json() as {
+      alert_type?: string
+      title?: string
+      message?: string
+      severity?: string
+      object_type?: string
+      object_id?: string
+      tenant_id?: string
+    }
+
+    if (!body.alert_type || !body.title) {
+      return c.json({ error: 'alert_type and title are required' }, 400)
+    }
+
+    const alert = await repo.createAlert({
+      alert_type: body.alert_type as PlatformAlert['alert_type'],
+      title: body.title,
+      message: body.message ?? '',
+      severity: (body.severity ?? 'info') as PlatformAlert['severity'],
+      object_type: body.object_type ?? '',
+      object_id: body.object_id ?? '',
+      acknowledged: false,
+      acknowledged_by: null,
+      acknowledged_at: null,
+    })
+
+    // P7: Dispatch email asynchronously (fire-and-log — never blocks response)
+    const tenantId = body.tenant_id ?? 'tenant-default'
+    dispatchAlertEmail(
+      c.env,
+      repo,
+      alert.id,
+      alert.title,
+      alert.message,
+      alert.severity,
+      tenantId
+    ).catch(() => {})
+
+    return c.json({ success: true, alert_id: alert.id, email_dispatch: 'queued' })
   })
 
   return route

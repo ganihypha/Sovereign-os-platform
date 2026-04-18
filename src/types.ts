@@ -1,9 +1,10 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — DATA MODEL v1.5 (P5)
+// SOVEREIGN OS PLATFORM — DATA MODEL v2.0 (P7)
 // Operating Law: Founder → L1 → L2 → L3 → Proof → Review → Live → Canon
 // P2 adds: RoleAssignment, SessionContinuity, GovernanceBoundary, OperatorNote
 // P4 adds: ProductLane, PlatformAlert, CanonPromotion
 // P5 adds: Tenant, WebhookDeliveryLog, AiAssistLog, PublicApiKey, MetricsSnapshot
+// P7 adds: AlertDelivery, TenantBranding, SsoConfig
 // ============================================================
 
 export type Lane = 'governance' | 'ops' | 'docs' | 'execution' | 'product-lane'
@@ -417,5 +418,62 @@ export interface MetricsSnapshot {
   active_lanes: number
   unread_alerts: number
   canon_candidates: number
+  snapshot_data?: string  // P7: JSON blob for extended metrics
   created_at: string
+}
+
+// ============================================================
+// P7 TYPES — Alert Delivery, Tenant Branding, SSO Config
+// ============================================================
+
+export type AlertDeliveryStatus = 'pending' | 'sent' | 'failed' | 'skipped'
+export type SsoProvider = 'auth0' | 'clerk' | 'none'
+
+// ---- AlertDelivery: Email dispatch record for governance alerts ----
+export interface AlertDelivery {
+  id: string
+  alert_id: string
+  tenant_id: string
+  recipient_email: string
+  delivery_status: AlertDeliveryStatus
+  provider: string          // 'resend' | 'sendgrid' | 'mock' | 'none'
+  provider_message_id: string
+  error_message: string
+  sent_at: string | null
+  created_at: string
+}
+
+// ---- TenantBranding: Per-tenant white-label CSS/brand config ----
+export interface TenantBranding {
+  id: string
+  tenant_id: string
+  brand_name: string
+  logo_url: string
+  primary_color: string
+  secondary_color: string
+  accent_color: string
+  text_color: string
+  bg_color: string
+  font_family: string
+  css_vars: string          // JSON: { "--var": "value", ... }
+  custom_footer: string
+  created_at: string
+  updated_at: string
+}
+
+// ---- SsoConfig: Per-tenant SSO/OAuth2 provider config ----
+export interface SsoConfig {
+  id: string
+  tenant_id: string
+  provider: SsoProvider
+  enabled: boolean
+  client_id: string
+  domain: string
+  redirect_uri: string
+  scopes: string
+  pkce_enabled: boolean
+  config_notes: string
+  created_by: string
+  created_at: string
+  updated_at: string
 }
