@@ -14,15 +14,15 @@ requirements, and a stable canon layer that survives sessions.
 
 | Item | Value |
 |------|-------|
-| **Version** | `0.7.0-P7` |
-| **Phase** | P7 — Enterprise Governance Expansion |
+| **Version** | `0.8.0-P8` |
+| **Phase** | P8 — Federated Governance & Advanced Platform Capabilities |
 | **Status** | ✅ LIVE-VERIFIED |
 | **Production** | https://sovereign-os-platform.pages.dev |
 | **GitHub** | https://github.com/ganihypha/Sovereign-os-platform |
-| **Latest Commit** | `42fded7` |
+| **Latest Commit** | `04b8962` |
 | **D1 Database** | `sovereign-os-production` (f6067325-9ea4-44bc-a5fd-e3d19367e657) |
-| **Migrations Applied** | 0001 → 0007 |
-| **Active Surfaces** | 26 total |
+| **Migrations Applied** | 0001 → 0008 |
+| **Active Surfaces** | 29 total |
 | **KV Namespace** | RATE_LIMITER_KV (b36f941ace3445d68d335d8cebc0803a) |
 
 ---
@@ -38,10 +38,13 @@ requirements, and a stable canon layer that survives sessions.
 | `https://sovereign-os-platform.pages.dev/api/v1/docs` | API documentation |
 | `https://sovereign-os-platform.pages.dev/auth/sso` | SSO/OAuth2 integration (P7) |
 | `https://sovereign-os-platform.pages.dev/branding` | Tenant white-label branding (P7) |
+| `https://sovereign-os-platform.pages.dev/federation` | Federation Registry (P8) |
+| `https://sovereign-os-platform.pages.dev/marketplace` | Connector Marketplace (P8) |
+| `https://sovereign-os-platform.pages.dev/audit` | Immutable Audit Trail (P8) |
 
 ---
 
-## Active Surfaces (26 total — all LIVE-VERIFIED)
+## Active Surfaces (29 total — all LIVE-VERIFIED)
 
 ### P0 Core (8 surfaces)
 | Surface | Path | Role |
@@ -95,6 +98,47 @@ requirements, and a stable canon layer that survives sessions.
 |---------|------|------|
 | SSO / OAuth2 | `/auth/sso` | Per-tenant SSO (Auth0/Clerk, PKCE) |
 | Tenant Branding | `/branding` | White-label CSS/brand per tenant |
+
+### P8 — NEW (3 surfaces)
+| Surface | Path | Role |
+|---------|------|------|
+| Federation Registry | `/federation` | Cross-tenant intent sharing + approval chains |
+| Connector Marketplace | `/marketplace` | Governed connector template publishing |
+| Immutable Audit Trail | `/audit` | SHA-256 event hashing + on-read verification |
+
+---
+
+## P8 Feature Summary
+
+### 1. Federated Governance ✅ LIVE
+- Cross-tenant intent sharing with approval gate
+- Tenant federation registry (who can share with whom)
+- Federated approval chains — multi-tenant approval routing
+- All federation events cryptographically hashed in audit_log_v2
+- D1 tables: `tenant_federation`, `federated_intents`
+
+### 2. ML/AI Anomaly Detection ✅ LIVE
+- `POST /api/v1/anomaly-detect` (readwrite API key required)
+- Statistical rolling baseline (last 5 snapshots), 30% deviation threshold
+- 6 metrics monitored: sessions, approvals, executions, connectors, alerts
+- OPENAI_API_KEY: graceful degradation — statistical mode without key, AI summaries with key
+- All anomalies → platform alert + audit_log_v2 event
+
+### 3. Connector Marketplace ✅ LIVE
+- Governed connector template publishing
+- Tier 2 approval required before listing
+- Download counter, version tracking, tag system
+- Connector must be `approved` + `marketplace_eligible` before submit
+- D1 table: `marketplace_connectors`
+
+### 4. Immutable Audit Trail (SHA-256) ✅ LIVE
+- `GET /audit` — Full audit log v2 with live hash verification
+- `GET /audit/verify/:id` — Single event hash verification (JSON API)
+- `GET /api/v1/audit-events` — Sanitized audit events (readwrite key)
+- Hash: `SHA-256(event_type|object_id|actor|created_at)` — Web Crypto API
+- No UPDATE ever on `audit_log_v2` (append-only enforcement)
+- Hash re-verified on every page load — TAMPERED flag if mismatch
+- D1 table: `audit_log_v2`
 
 ---
 
