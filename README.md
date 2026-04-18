@@ -14,15 +14,15 @@ requirements, and a stable canon layer that survives sessions.
 
 | Item | Value |
 |------|-------|
-| **Version** | `0.8.0-P8` |
-| **Phase** | P8 — Federated Governance & Advanced Platform Capabilities |
+| **Version** | `0.9.0-P9` |
+| **Phase** | P9 — Real-time Governance & Advanced Automation |
 | **Status** | ✅ LIVE-VERIFIED |
 | **Production** | https://sovereign-os-platform.pages.dev |
 | **GitHub** | https://github.com/ganihypha/Sovereign-os-platform |
-| **Latest Commit** | `04b8962` |
+| **Latest Commit** | `b8144c3` |
 | **D1 Database** | `sovereign-os-production` (f6067325-9ea4-44bc-a5fd-e3d19367e657) |
-| **Migrations Applied** | 0001 → 0008 |
-| **Active Surfaces** | 29 total |
+| **Migrations Applied** | 0001 → 0009 |
+| **Active Surfaces** | 33 total |
 | **KV Namespace** | RATE_LIMITER_KV (b36f941ace3445d68d335d8cebc0803a) |
 
 ---
@@ -41,10 +41,14 @@ requirements, and a stable canon layer that survives sessions.
 | `https://sovereign-os-platform.pages.dev/federation` | Federation Registry (P8) |
 | `https://sovereign-os-platform.pages.dev/marketplace` | Connector Marketplace (P8) |
 | `https://sovereign-os-platform.pages.dev/audit` | Immutable Audit Trail (P8) |
+| `https://sovereign-os-platform.pages.dev/notifications` | Real-time Notifications (P9) |
+| `https://sovereign-os-platform.pages.dev/workflows` | Workflow Automation (P9) |
+| `https://sovereign-os-platform.pages.dev/health-dashboard` | Platform Health Dashboard (P9) |
+| `https://sovereign-os-platform.pages.dev/portal/default` | Tenant Self-Service Portal (P9) |
 
 ---
 
-## Active Surfaces (29 total — all LIVE-VERIFIED)
+## Active Surfaces (33 total — all LIVE-VERIFIED)
 
 ### P0 Core (8 surfaces)
 | Surface | Path | Role |
@@ -106,9 +110,48 @@ requirements, and a stable canon layer that survives sessions.
 | Connector Marketplace | `/marketplace` | Governed connector template publishing |
 | Immutable Audit Trail | `/audit` | SHA-256 event hashing + on-read verification |
 
+### P9 — NEW (4 surfaces)
+| Surface | Path | Role |
+|---------|------|------|
+| Notifications | `/notifications` | SSE real-time stream + notification inbox (KV-backed) |
+| Workflows | `/workflows` | Workflow automation engine (event → condition → action) |
+| Health Dashboard | `/health-dashboard` | Unified platform health (33 surfaces, SLA, time-series) |
+| Tenant Portal | `/portal/:slug` | Tenant self-service (profile, connectors, federation, marketplace) |
+
 ---
 
-## P8 Feature Summary
+## P9 Feature Summary
+
+### 1. Real-time Governance Notifications ✅ LIVE
+- SSE stream at /notifications/stream (graceful fallback to polling)
+- Notification inbox: approval_pending, anomaly_detected, federation_request, marketplace_submitted, workflow_triggered, system_alert
+- KV-backed state persistence (notif:latest:{tenant_id})
+- Mark read / mark all read
+- D1 table: notifications
+
+### 2. Advanced Workflow Automation ✅ LIVE
+- Trigger chains: trigger_event → condition → action
+- 3 built-in templates (approval notify, anomaly escalation, federation notify)
+- Lifecycle: draft → pending_approval → active
+- Full execution history logged to audit_log_v2
+- Manual trigger + event-driven trigger API
+- D1 tables: workflows, workflow_runs
+
+### 3. Platform Health Dashboard ✅ LIVE
+- Unified health view: all 33 surfaces grouped by phase
+- SLA tracking: uptime %, avg response ms, health grade (A+/A/B/C)
+- 24h lookback health time-series
+- One-click health check snapshot for 10 core surfaces
+- D1 table: health_snapshots
+
+### 4. Tenant Self-Service Portal ✅ LIVE
+- Per-tenant portal: /portal/:slug
+- Self-service profile update, connector management, metrics view
+- Federation request flow directly from portal
+- Marketplace connector submission from portal
+- API key scope enforcement (X-API-Key header)
+
+---
 
 ### 1. Federated Governance ✅ LIVE
 - Cross-tenant intent sharing with approval gate
