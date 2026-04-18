@@ -1,9 +1,6 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — PUBLIC API KEY MANAGEMENT (P5)
-// Manages external public API keys.
-// Auth: GET requires auth, POST requires auth
-// Key management: raw key shown once at issuance, never stored
-// Rate limiting: pluggable abstraction (KV-backed when binding available)
+// SOVEREIGN OS PLATFORM — PUBLIC API KEY MANAGEMENT (P5+P13)
+// P13: API key policy assignment UI panel per key
 // ============================================================
 
 import { Hono } from 'hono'
@@ -47,10 +44,25 @@ export function createApiKeysRoute() {
         </div>`, '/api-keys', unreadAlerts), 401)
     }
 
-    const [keys, unreadAlerts] = await Promise.all([
+    const [keys, unreadAlerts, allPolicies] = await Promise.all([
       repo.getPublicApiKeys(),
       repo.getUnreadAlertCount(),
+      c.env.DB ? getAllPolicies(c.env.DB) : []
     ])
+
+    // Load policy assignments for each active key
+    const keyPolicyMap: Record<string, Array<{ policy_id: string; policy_name?: string }>> = {}
+    if (c.env.DB && keys.length > 0) {
+      for (const k of keys.filter(k => k.active)) {
+        try {
+          const kp = await getApiKeyPolicies(c.env.DB, k.id)
+          keyPolicyMap[k.id] = kp.map(p => ({
+            policy_id: p.policy_id,
+            policy_name: allPolicies.find(ap => ap.id === p.policy_id)?.name || p.policy_id
+          }))
+        } catch { keyPolicyMap[k.id] = [] }
+      }
+    }
 
     // Check for newly issued key in flash (query param)
     const newKey = c.req.query('new_key')
@@ -63,10 +75,47 @@ export function createApiKeysRoute() {
         </div>
       </div>` : ''
 
-    const keyRows = keys.map(k => `
+    const keyRows = keys.map(k => {
+      const assignedPolicies = keyPolicyMap[k.id] || []
+      const policyCount = assignedPolicies.length
+      const policyBadge = `<span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(79,142,247,0.1);color:#4f8ef7;border:1px solid rgba(79,142,247,0.3)">${policyCount} policies</span>`
+
+      const policyPanelId = `pp-${k.id.slice(0,8)}`
+      const assignedList = assignedPolicies.length > 0
+        ? assignedPolicies.map(p => `
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--border)">
+            <span style="font-size:10px;color:var(--text2)">${p.policy_name}</span>
+            <form action="/api-keys/${k.id}/remove-policy" method="POST" style="display:inline">
+              <input type="hidden" name="policy_id" value="${p.policy_id}">
+              <button type="submit" style="background:rgba(239,68,68,0.1);color:#ef4444;border:none;border-radius:3px;padding:2px 6px;font-size:9px;cursor:pointer">Remove</button>
+            </form>
+          </div>`).join('')
+        : '<div style="font-size:10px;color:var(--text3);padding:4px 0">No policies assigned</div>'
+
+      const availablePolicies = allPolicies.filter(ap => ap.status === 'active' && !assignedPolicies.some(p => p.policy_id === ap.id))
+      const assignForm = availablePolicies.length > 0 ? `
+        <form action="/api-keys/${k.id}/assign-policy" method="POST" style="display:flex;gap:6px;margin-top:8px">
+          <select name="policy_id" style="flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:4px 6px;font-size:10px">
+            ${availablePolicies.map(p => `<option value="${p.id}">${p.name}</option>`).join('')}
+          </select>
+          <button type="submit" style="background:rgba(34,197,94,0.1);color:#22c55e;border:1px solid rgba(34,197,94,0.3);border-radius:4px;padding:4px 8px;font-size:10px;cursor:pointer;font-weight:600">+ Assign</button>
+        </form>` : '<div style="font-size:10px;color:var(--text3);margin-top:6px">No more active policies to assign</div>'
+
+      const policyPanel = k.active ? `
+        <div id="${policyPanelId}" style="display:none;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:10px;margin-top:8px">
+          <div style="font-size:10px;color:var(--text3);font-weight:600;margin-bottom:6px">ASSIGNED POLICIES</div>
+          ${assignedList}
+          ${assignForm}
+        </div>` : ''
+
+      return `
       <tr>
-        <td><strong>${escHtml(k.label)}</strong><br>
-          <span style="font-size:11px;color:var(--text2)">ID: <code>${k.id.slice(0,8)}</code></span></td>
+        <td>
+          <strong>${escHtml(k.label)}</strong><br>
+          <span style="font-size:11px;color:var(--text2)">ID: <code>${k.id.slice(0,8)}</code></span><br>
+          ${k.active ? `<button onclick="togglePanel('${policyPanelId}')" style="background:none;border:none;padding:0;cursor:pointer;font-size:10px;color:var(--accent);margin-top:4px">Manage Policies ${policyBadge}</button>` : policyBadge}
+          ${policyPanel}
+        </td>
         <td><span class="badge ${k.role_scope === 'readwrite' ? 'badge-yellow' : 'badge-blue'}">${k.role_scope}</span></td>
         <td>${k.active ? '<span class="badge badge-green">active</span>' : '<span class="badge badge-red">revoked</span>'}</td>
         <td>${k.rate_limit}/hr</td>
@@ -78,7 +127,8 @@ export function createApiKeysRoute() {
             <button class="btn btn-sm btn-red" onclick="return confirm('Revoke this key?')">Revoke</button>
           </form>
         </td>` : '<td><span style="font-size:11px;color:var(--text3)">revoked</span></td>'}
-      </tr>`).join('')
+      </tr>`
+    }).join('')
 
     const body = `
       ${newKeyBanner}
@@ -158,7 +208,13 @@ export function createApiKeysRoute() {
             Current: pluggable abstraction with in-memory fallback (resets on deploy).
           </p>
         </div>
-      </div>`
+      </div>
+      <script>
+      function togglePanel(id) {
+        const el = document.getElementById(id);
+        if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+      }
+      </script>`
 
     return c.html(layout('API Key Management', body, '/api-keys', unreadAlerts))
   })

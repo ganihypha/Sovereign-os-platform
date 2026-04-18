@@ -1,6 +1,6 @@
 // ============================================================
 // SOVEREIGN OS PLATFORM — MAIN ENTRY (P12 — ABAC MIDDLEWARE, SCHEDULED REPORTS, WEBHOOK QUEUE, EVENT BUS INTEGRATION, API KEY PERMISSIONS)
-// Version: 1.2.0-P12
+// Version: 1.3.0-P13
 // Platform: Cloudflare Pages + Workers
 // Hono Framework — Edge-first
 // ============================================================
@@ -262,8 +262,8 @@ app.get('/health', (c) => {
   return c.json({
     status: 'ok',
     platform: 'Sovereign OS Platform',
-    version: '1.2.0-P12',
-    phase: 'P12 — ABAC Middleware, Scheduled Reports, Webhook Queue, Event Bus Integration, API Key Permissions',
+    version: '1.3.0-P13',
+    phase: 'P13 — ABAC-Aware UI, Event Archive, API Key Policy UI, Observability, Tenant ABAC',
     persistence: repo.isPersistent ? 'd1' : 'in-memory',
     auth_configured: !!c.env.PLATFORM_API_KEY,
     kv_rate_limiter: !!c.env.RATE_LIMITER_KV ? 'kv-enforced' : 'in-memory-partial',
@@ -287,8 +287,8 @@ app.get('/status', async (c) => {
     return c.json({
       status: 'operational',
       platform: 'Sovereign OS Platform',
-      version: '1.2.0-P12',
-      phase: 'P12 — ABAC Middleware, Scheduled Reports, Webhook Queue, Event Bus Integration, API Key Permissions',
+      version: '1.3.0-P13',
+      phase: 'P13 — ABAC-Aware UI, Event Archive, API Key Policy UI, Observability, Tenant ABAC',
       persistence: repo.isPersistent ? 'd1-persistent' : 'in-memory-ephemeral',
       auth_configured: !!c.env.PLATFORM_API_KEY,
       kv_rate_limiter: !!c.env.RATE_LIMITER_KV ? 'kv-enforced' : 'in-memory-partial',
@@ -341,6 +341,12 @@ app.get('/status', async (c) => {
         webhook_queue: 'active',         // P12 — webhook delivery queue
         api_key_permissions: 'active',   // P12 — API key scoped permissions
         event_bus_integration: 'active', // P12 — event emission from surfaces
+        abac_aware_ui: 'active',         // P13 — ABAC-aware UI (disabled buttons)
+        event_archive: 'active',         // P13 — event auto-archive + retention
+        api_key_policy_ui: 'active',     // P13 — API key policy assignment UI
+        health_dashboard_p13: 'active',  // P13 — ABAC/webhook/subscription stats
+        tenant_abac: 'active',           // P13 — tenant-scoped ABAC policies
+        policies_simulate_ui: 'active',  // P13 — /policies#simulate interactive form
       },
       counts: {
         sessions: sessions.length,
@@ -355,7 +361,7 @@ app.get('/status', async (c) => {
     return c.json({
       status: 'degraded',
       platform: 'Sovereign OS Platform',
-      version: '1.2.0-P12',
+      version: '1.3.0-P13',
       error: 'Could not read platform state',
       persistence: 'unknown',
       timestamp: new Date().toISOString(),

@@ -1,6 +1,7 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — POLICIES SURFACE (P10)
+// SOVEREIGN OS PLATFORM — POLICIES SURFACE (P10+P13)
 // Purpose: ABAC policy editor — view, create, toggle policies
+// P13: ABAC-aware UI, /policies#simulate interactive HTML form
 // Surface: /policies
 // ============================================================
 
@@ -13,6 +14,7 @@ import {
   type Policy
 } from '../lib/abacService'
 import { abacGuardPoliciesWrite } from '../lib/abacMiddleware'
+import { getAbacUiConfig, generateAbacUiScript } from '../lib/abacUiService'
 
 function effectBadge(effect: 'allow' | 'deny'): string {
   return effect === 'allow'
@@ -31,7 +33,10 @@ export function createPoliciesRoute() {
 
   // GET /policies
   route.get('/', async (c) => {
-    const policies = c.env.DB ? await getAllPolicies(c.env.DB) : []
+    const [policies, abacConfigs] = await Promise.all([
+      c.env.DB ? getAllPolicies(c.env.DB) : [],
+      c.env.DB ? getAbacUiConfig(c.env.DB, 'policies') : []
+    ])
 
     const rows = policies.map(p => `
       <tr style="border-bottom:1px solid var(--border)">
@@ -157,11 +162,88 @@ export function createPoliciesRoute() {
               <input name="priority" type="number" value="100" min="1" max="999" style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:12px;box-sizing:border-box">
             </div>
             <div style="display:flex;align-items:flex-end">
-              <button type="submit" style="background:var(--accent);color:#fff;border:none;border-radius:6px;padding:9px 24px;font-size:13px;font-weight:600;cursor:pointer">Create Policy</button>
+              <button type="submit" data-abac-action="write" data-abac-resource="policies" style="background:var(--accent);color:#fff;border:none;border-radius:6px;padding:9px 24px;font-size:13px;font-weight:600;cursor:pointer">Create Policy</button>
             </div>
           </div>
         </form>
       </div>
+
+      <!-- P13: ABAC Simulate Interactive Form Panel -->
+      <div id="simulate" style="background:var(--bg2);border:1px solid rgba(79,142,247,0.3);border-radius:var(--radius);padding:24px;margin-top:16px">
+        <h2 style="font-size:15px;font-weight:700;color:var(--text);margin-bottom:4px">🧪 ABAC Policy Simulator</h2>
+        <p style="font-size:12px;color:var(--text2);margin-bottom:16px">Dry-run ABAC policy evaluation. Test if a subject has access to a resource/action without making real changes.</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
+          <div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+              <div>
+                <label style="display:block;font-size:11px;color:var(--text3);margin-bottom:6px">Subject Type</label>
+                <select id="sim-subject-type" style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:12px">
+                  ${SUBJECT_TYPE_OPTIONS.map(o => `<option value="${o.value}">${o.label}</option>`).join('')}
+                </select>
+              </div>
+              <div>
+                <label style="display:block;font-size:11px;color:var(--text3);margin-bottom:6px">Subject Value</label>
+                <input id="sim-subject-value" placeholder="admin / viewer / tenant-a" value="viewer" style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:12px;box-sizing:border-box">
+              </div>
+              <div>
+                <label style="display:block;font-size:11px;color:var(--text3);margin-bottom:6px">Resource Type</label>
+                <select id="sim-resource-type" style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:12px">
+                  ${RESOURCE_TYPE_OPTIONS.map(o => `<option value="${o.value}">${o.label}</option>`).join('')}
+                </select>
+              </div>
+              <div>
+                <label style="display:block;font-size:11px;color:var(--text3);margin-bottom:6px">Action</label>
+                <select id="sim-action" style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:12px">
+                  ${ACTION_OPTIONS_ABAC.map(o => `<option value="${o.value}">${o.label}</option>`).join('')}
+                </select>
+              </div>
+            </div>
+            <div style="margin-bottom:12px">
+              <label style="display:block;font-size:11px;color:var(--text3);margin-bottom:6px">Tenant ID (optional)</label>
+              <input id="sim-tenant" placeholder="tenant-default" value="tenant-default" style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:12px;box-sizing:border-box">
+            </div>
+            <button id="sim-btn" onclick="runSimulate()" style="background:rgba(79,142,247,0.15);color:#4f8ef7;border:1px solid rgba(79,142,247,0.3);border-radius:6px;padding:10px 24px;font-size:13px;font-weight:600;cursor:pointer">Run Simulation</button>
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Result</div>
+            <div id="sim-result" style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:16px;min-height:180px;font-size:12px;color:var(--text2)">
+              <span style="color:var(--text3);font-style:italic">Enter parameters and click Run Simulation to see the ABAC decision.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <script>
+      async function runSimulate() {
+        const btn = document.getElementById('sim-btn');
+        const result = document.getElementById('sim-result');
+        btn.disabled = true; btn.textContent = 'Evaluating...';
+        try {
+          const resp = await fetch('/policies/simulate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              subject_type: document.getElementById('sim-subject-type').value,
+              subject_value: document.getElementById('sim-subject-value').value,
+              resource_type: document.getElementById('sim-resource-type').value,
+              action: document.getElementById('sim-action').value,
+              tenant_id: document.getElementById('sim-tenant').value || 'tenant-default'
+            })
+          });
+          const data = await resp.json();
+          const decisionColor = data.decision === 'allow' || data.decision === 'not-applicable' ? '#22c55e' : '#ef4444';
+          const decisionLabel = data.allowed ? '✅ ALLOWED' : '❌ DENIED';
+          result.innerHTML = '<div style="margin-bottom:12px"><span style="font-size:18px;font-weight:700;color:' + decisionColor + '">' + decisionLabel + '</span> <span style="font-size:11px;color:var(--text3)">(' + data.decision + ')</span></div>'
+            + '<div style="font-size:11px;color:var(--text2);margin-bottom:8px">' + (data.reason || '') + '</div>'
+            + '<div style="font-size:10px;color:var(--text3);margin-bottom:8px">Policies evaluated: ' + data.policies_evaluated + ' · Matched: ' + (data.matched_policies?.length || 0) + '</div>'
+            + (data.matched_policies?.length ? '<div style="font-size:10px;color:var(--text3)">'
+              + data.matched_policies.map(p => '<div style="padding:3px 0;border-bottom:1px solid var(--border)"><span style="color:' + (p.effect === 'allow' ? '#22c55e' : '#ef4444') + ';font-weight:600">' + p.effect.toUpperCase() + '</span> ' + p.name + ' (priority:' + p.priority + ')</div>').join('')
+              + '</div>' : '<div style="font-size:10px;color:var(--text3)">No matching policies — default: allow</div>');
+        } catch(e) {
+          result.innerHTML = '<span style="color:#ef4444">Error: ' + e.message + '</span>';
+        }
+        btn.disabled = false; btn.textContent = 'Run Simulation';
+      }
+      </script>
 
       <!-- ABAC Info -->
       <div style="margin-top:16px;padding:12px 16px;background:rgba(249,115,22,0.05);border:1px solid rgba(249,115,22,0.15);border-radius:8px;font-size:11px;color:var(--text3)">
@@ -170,6 +252,7 @@ export function createPoliciesRoute() {
         Wildcard <code>*</code> matches all values. Default behavior when no policy matches: <strong>allow</strong> (governance-first, not deny-all).
         AI-generated policy suggestions are tagged and require human confirmation before activation.
       </div>
+    ${generateAbacUiScript('policies', abacConfigs)}
     `
     return c.html(layout('ABAC Policies', content, '/policies'))
   })

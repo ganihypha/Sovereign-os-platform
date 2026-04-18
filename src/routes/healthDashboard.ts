@@ -1,14 +1,6 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — HEALTH DASHBOARD SURFACE (P9)
-// Unified platform health view: all 33 surfaces + D1 + KV
-//
-// GET /health-dashboard         — Unified health view (HTML)
-// POST /health-dashboard/check  — Trigger health check snapshot
-// GET /api/v1/health-report     — API: health data (auth required)
-//
-// SLA tracking: uptime % per surface (24h lookback)
-// Time-series: health_snapshots table
-// Anomaly integration: flags degraded surfaces
+// SOVEREIGN OS PLATFORM — HEALTH DASHBOARD SURFACE (P9+P13)
+// P13: ABAC enforcement stats, webhook queue health, report subscription health
 // ============================================================
 
 import { Hono } from 'hono'
@@ -21,6 +13,7 @@ import {
   getSurfaceHistory,
   ALL_SURFACES
 } from '../lib/healthDashboardService'
+import { getAbacDenyStats } from '../lib/abacUiService'
 
 export const healthDashboardRoute = new Hono<{ Bindings: Env }>()
 
@@ -31,13 +24,35 @@ healthDashboardRoute.get('/', async (c) => {
   let slas: any[] = []
   let summary: any = {}
   let error = ''
+  let abacStats: any = { total_denials: 0, denials_last_24h: 0, top_denied_surfaces: [], top_denied_roles: [], routes_guarded: 5 }
+  let webhookStats: any = { total: 0, pending: 0, delivered: 0, retrying: 0, failed: 0 }
+  let subscriptionStats: any = { total: 0, active: 0, last_run: null }
 
   try {
-    slas = await getSurfaceSLAs(db, undefined, 24)
-    summary = await getPlatformHealthSummary(db)
+    const [slaResult, summaryResult, abacResult] = await Promise.all([
+      getSurfaceSLAs(db, undefined, 24),
+      getPlatformHealthSummary(db),
+      db ? getAbacDenyStats(db) : Promise.resolve(abacStats)
+    ])
+    slas = slaResult
+    summary = summaryResult
+    abacStats = abacResult
+
+    // Webhook queue stats from D1
+    if (db) {
+      try {
+        const wqStats = await db.prepare(`SELECT COUNT(*) as total, SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END) as pending, SUM(CASE WHEN status='delivered' THEN 1 ELSE 0 END) as delivered, SUM(CASE WHEN status='retrying' THEN 1 ELSE 0 END) as retrying, SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) as failed FROM webhook_queue`).first()
+        if (wqStats) webhookStats = { total: (wqStats as any).total || 0, pending: (wqStats as any).pending || 0, delivered: (wqStats as any).delivered || 0, retrying: (wqStats as any).retrying || 0, failed: (wqStats as any).failed || 0 }
+      } catch { /* use defaults */ }
+
+      // Subscription stats
+      try {
+        const subStats = await db.prepare(`SELECT COUNT(*) as total, SUM(CASE WHEN status='active' THEN 1 ELSE 0 END) as active, MAX(last_run_at) as last_run FROM report_subscriptions`).first()
+        if (subStats) subscriptionStats = { total: (subStats as any).total || 0, active: (subStats as any).active || 0, last_run: (subStats as any).last_run || null }
+      } catch { /* use defaults */ }
+    }
   } catch (err: any) {
     error = err.message || 'Failed to load health data'
-    // Provide defaults
     slas = ALL_SURFACES.map(s => ({
       surface: s, total_checks: 0, healthy_checks: 0, uptime_pct: 100, avg_response_ms: 0, last_status: 200, last_checked: 'No data'
     }))
@@ -165,6 +180,57 @@ healthDashboardRoute.get('/', async (c) => {
       </div>
     </div>
     ${phaseBlocks}
+  </div>
+
+  <!-- P13 Observability Panel: ABAC + Webhook + Subscription -->
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:20px">
+    <!-- ABAC Enforcement Stats -->
+    <div style="background:var(--bg2);border:1px solid rgba(249,115,22,0.2);border-radius:8px;padding:16px">
+      <div style="font-size:11px;color:#f97316;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:12px">ABAC Enforcement</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+        <div style="text-align:center;background:rgba(249,115,22,0.05);border-radius:6px;padding:10px">
+          <div style="font-size:20px;font-weight:700;color:#f97316">${abacStats.routes_guarded}</div>
+          <div style="font-size:9px;color:var(--text3)">Routes Guarded</div>
+        </div>
+        <div style="text-align:center;background:rgba(239,68,68,0.05);border-radius:6px;padding:10px">
+          <div style="font-size:20px;font-weight:700;color:#ef4444">${abacStats.denials_last_24h}</div>
+          <div style="font-size:9px;color:var(--text3)">Denials (24h)</div>
+        </div>
+      </div>
+      <div style="font-size:10px;color:var(--text3)">Total Denials: <strong style="color:var(--text)">${abacStats.total_denials}</strong></div>
+      ${abacStats.top_denied_surfaces.length > 0 ? `<div style="font-size:10px;color:var(--text3);margin-top:4px">Top Denied: <strong style="color:var(--text)">${abacStats.top_denied_surfaces[0]?.surface || '—'}</strong></div>` : ''}
+    </div>
+
+    <!-- Webhook Queue Health -->
+    <div style="background:var(--bg2);border:1px solid rgba(6,182,212,0.2);border-radius:8px;padding:16px">
+      <div style="font-size:11px;color:#06b6d4;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:12px">Webhook Queue</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px">
+        ${[
+          { label: 'Total', val: webhookStats.total, color: '#4f8ef7' },
+          { label: 'Delivered', val: webhookStats.delivered, color: '#22c55e' },
+          { label: 'Pending', val: webhookStats.pending, color: '#fbbf24' },
+          { label: 'Failed', val: webhookStats.failed, color: '#ef4444' },
+        ].map(s => `<div style="text-align:center;background:var(--bg3);border-radius:4px;padding:6px"><div style="font-size:16px;font-weight:700;color:${s.color}">${s.val}</div><div style="font-size:9px;color:var(--text3)">${s.label}</div></div>`).join('')}
+      </div>
+      ${webhookStats.retrying > 0 ? `<div style="font-size:10px;color:#fbbf24">⚠️ ${webhookStats.retrying} retrying</div>` : '<div style="font-size:10px;color:#22c55e">✅ No retrying</div>'}
+    </div>
+
+    <!-- Report Subscription Health -->
+    <div style="background:var(--bg2);border:1px solid rgba(168,85,247,0.2);border-radius:8px;padding:16px">
+      <div style="font-size:11px;color:#a855f7;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:12px">Report Subscriptions</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+        <div style="text-align:center;background:rgba(168,85,247,0.05);border-radius:6px;padding:10px">
+          <div style="font-size:20px;font-weight:700;color:#a855f7">${subscriptionStats.total}</div>
+          <div style="font-size:9px;color:var(--text3)">Total Subs</div>
+        </div>
+        <div style="text-align:center;background:rgba(34,197,94,0.05);border-radius:6px;padding:10px">
+          <div style="font-size:20px;font-weight:700;color:#22c55e">${subscriptionStats.active}</div>
+          <div style="font-size:9px;color:var(--text3)">Active</div>
+        </div>
+      </div>
+      <div style="font-size:10px;color:var(--text3)">Last Run: <strong style="color:var(--text)">${subscriptionStats.last_run ? String(subscriptionStats.last_run).slice(0,16) : 'Never'}</strong></div>
+      <div style="font-size:10px;color:var(--text3);margin-top:2px">Next: lazy (KV TTL polling)</div>
+    </div>
   </div>
 
   <!-- SLA Table -->

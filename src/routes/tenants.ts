@@ -1,8 +1,6 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — TENANT PROVISIONING SURFACE (P5)
-// Multi-tenant isolation registry.
-// Auth: GET = read-only (unauthenticated), POST = requires auth
-// Tenant isolation: tenant A data never readable by tenant B
+// SOVEREIGN OS PLATFORM — TENANT PROVISIONING SURFACE (P5+P13)
+// P13: Tenant-scoped ABAC — inject tenant context, show tenant policies
 // ============================================================
 
 import { Hono } from 'hono'
@@ -10,6 +8,8 @@ import type { Env } from '../index'
 import { createRepo } from '../lib/repo'
 import { layout, badgeStatus } from '../layout'
 import { isAuthenticated } from '../lib/auth'
+import { getTenantPolicies, assignTenantPolicy, removeTenantPolicy } from '../lib/abacUiService'
+import { getAllPolicies } from '../lib/abacService'
 
 export function createTenantsRoute() {
   const app = new Hono<{ Bindings: Env }>()
@@ -278,6 +278,32 @@ export function createTenantsRoute() {
         </div></div>`, '/tenants', unreadAlerts), 404)
     }
 
+    // P13: Load tenant policies + available policies for assignment
+    const [tenantPolicies, allPolicies] = await Promise.all([
+      c.env.DB ? getTenantPolicies(c.env.DB, id) : [],
+      c.env.DB ? getAllPolicies(c.env.DB) : []
+    ])
+
+    const assignablePolicies = allPolicies.filter(
+      p => p.status === 'active' && !tenantPolicies.some(tp => tp.policy_id === p.id)
+    )
+
+    const policyRows = tenantPolicies.length > 0
+      ? tenantPolicies.map(tp => {
+          const policyName = allPolicies.find(p => p.id === tp.policy_id)?.name || tp.policy_id
+          return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
+            <div>
+              <span style="font-size:12px;color:var(--text2);font-weight:500">${policyName}</span>
+              <span style="font-size:10px;color:var(--text3);display:block">Delegated by: ${tp.delegated_by} · ${String(tp.delegated_at).slice(0,10)}</span>
+            </div>
+            <form action="/tenants/${id}/remove-policy" method="POST">
+              <input type="hidden" name="policy_id" value="${tp.policy_id}">
+              <button type="submit" style="background:rgba(239,68,68,0.1);color:#ef4444;border:none;border-radius:4px;padding:4px 10px;font-size:10px;cursor:pointer">Remove</button>
+            </form>
+          </div>`
+        }).join('')
+      : '<div style="font-size:11px;color:var(--text3);padding:8px 0">No policies assigned to this tenant</div>'
+
     const body = `
       <div class="page-header">
         <div>
@@ -286,22 +312,63 @@ export function createTenantsRoute() {
         </div>
         <a href="/tenants" class="btn btn-secondary">Back</a>
       </div>
-      <div class="card">
-        <div class="card-body">
-          <table class="table">
-            <tr><th>Status</th><td>${badgeStatus(tenant.status)}</td></tr>
-            <tr><th>Approval</th><td><span class="badge ${tenant.approval_status === 'approved' ? 'badge-green' : 'badge-yellow'}">${tenant.approval_status}</span></td></tr>
-            <tr><th>Plan</th><td>${tenant.plan}</td></tr>
-            <tr><th>Isolation</th><td>${tenant.isolation_mode}</td></tr>
-            <tr><th>Owner</th><td>${escHtml(tenant.owner_name)} (${escHtml(tenant.owner_email)})</td></tr>
-            <tr><th>Approval Tier</th><td>Tier ${tenant.approval_tier}</td></tr>
-            <tr><th>Notes</th><td>${escHtml(tenant.notes)}</td></tr>
-            <tr><th>Created</th><td>${tenant.created_at}</td></tr>
-          </table>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div class="card">
+          <div class="card-body">
+            <table class="table">
+              <tr><th>Status</th><td>${badgeStatus(tenant.status)}</td></tr>
+              <tr><th>Approval</th><td><span class="badge ${tenant.approval_status === 'approved' ? 'badge-green' : 'badge-yellow'}">${tenant.approval_status}</span></td></tr>
+              <tr><th>Plan</th><td>${tenant.plan}</td></tr>
+              <tr><th>Isolation</th><td>${tenant.isolation_mode}</td></tr>
+              <tr><th>Owner</th><td>${escHtml(tenant.owner_name)} (${escHtml(tenant.owner_email)})</td></tr>
+              <tr><th>Approval Tier</th><td>Tier ${tenant.approval_tier}</td></tr>
+              <tr><th>Notes</th><td>${escHtml(tenant.notes)}</td></tr>
+              <tr><th>Created</th><td>${tenant.created_at}</td></tr>
+            </table>
+          </div>
+        </div>
+        <!-- P13: Tenant Policy Management -->
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title" style="font-size:13px">Tenant ABAC Policies <span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(79,142,247,0.1);color:#4f8ef7;margin-left:6px">${tenantPolicies.length}</span></h3>
+          </div>
+          <div class="card-body">
+            ${policyRows}
+            ${assignablePolicies.length > 0 ? `
+            <form action="/tenants/${id}/assign-policy" method="POST" style="display:flex;gap:8px;margin-top:12px">
+              <select name="policy_id" style="flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:6px 8px;font-size:11px">
+                ${assignablePolicies.map(p => `<option value="${p.id}">${p.name}</option>`).join('')}
+              </select>
+              <button type="submit" style="background:rgba(34,197,94,0.1);color:#22c55e;border:1px solid rgba(34,197,94,0.3);border-radius:4px;padding:6px 12px;font-size:11px;cursor:pointer;font-weight:600">+ Assign</button>
+            </form>` : '<div style="font-size:10px;color:var(--text3);margin-top:8px">All active policies already assigned</div>'}
+          </div>
         </div>
       </div>`
 
     return c.html(layout(`Tenant: ${tenant.name}`, body, '/tenants', unreadAlerts))
+  })
+
+  // P13: Assign policy to tenant
+  app.post('/:id/assign-policy', async (c) => {
+    const authenticated = await isAuthenticated(c, c.env)
+    if (!authenticated) return c.json({ error: 'AUTH_REQUIRED' }, 401)
+    if (!c.env.DB) return c.redirect(`/tenants/${c.req.param('id')}`)
+    const body = await c.req.parseBody()
+    const policyId = String(body['policy_id'] || '')
+    if (policyId) {
+      await assignTenantPolicy(c.env.DB, c.req.param('id'), policyId, 'admin')
+    }
+    return c.redirect(`/tenants/${c.req.param('id')}`)
+  })
+
+  // P13: Remove policy from tenant
+  app.post('/:id/remove-policy', async (c) => {
+    const authenticated = await isAuthenticated(c, c.env)
+    if (!authenticated) return c.json({ error: 'AUTH_REQUIRED' }, 401)
+    if (!c.env.DB) return c.redirect(`/tenants/${c.req.param('id')}`)
+    const body = await c.req.parseBody()
+    await removeTenantPolicy(c.env.DB, c.req.param('id'), String(body['policy_id'] || ''))
+    return c.redirect(`/tenants/${c.req.param('id')}`)
   })
 
   return app

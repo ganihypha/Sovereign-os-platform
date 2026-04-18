@@ -1,8 +1,6 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — CANON PROMOTION ROUTE (P4)
-// Formalizes the path from "output" to "canon".
-// Only Founder or Architect role may promote or reject.
-// No auto-promotion path exists.
+// SOVEREIGN OS PLATFORM — CANON PROMOTION ROUTE (P4+P13)
+// P13: ABAC-aware UI — viewer role sees disabled promote/reject buttons
 // ============================================================
 
 import { Hono } from 'hono'
@@ -12,6 +10,7 @@ import { isAuthenticated } from '../lib/auth'
 import type { Env } from '../index'
 import type { CanonCandidate } from '../types'
 import { abacGuardCanonPromote } from '../lib/abacMiddleware'
+import { getAbacUiConfig, generateAbacUiScript } from '../lib/abacUiService'
 
 const STATUS_BADGE: Record<string, string> = {
   candidate: '<span style="background:rgba(79,142,247,0.15);color:#4f8ef7;border:1px solid rgba(79,142,247,0.3);border-radius:4px;padding:2px 8px;font-size:11px;font-weight:700">CANDIDATE</span>',
@@ -43,10 +42,14 @@ function candidateCard(item: CanonCandidate, isAuth: boolean): string {
       </div>
       ${isAuth && isPromotable ? `
       <div style="display:flex;flex-direction:column;gap:8px;flex-shrink:0">
-        <button onclick="openPromoteModal('${item.id}', '${item.title.replace(/'/g, "\\'")}', 'promote')" style="background:rgba(34,197,94,0.1);color:#22c55e;border:1px solid rgba(34,197,94,0.3);border-radius:6px;padding:8px 16px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">
+        <button onclick="openPromoteModal('${item.id}', '${item.title.replace(/'/g, "\\'")}', 'promote')" 
+          data-abac-action="approve" data-abac-resource="approvals"
+          style="background:rgba(34,197,94,0.1);color:#22c55e;border:1px solid rgba(34,197,94,0.3);border-radius:6px;padding:8px 16px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">
           Promote to Canon
         </button>
-        <button onclick="openPromoteModal('${item.id}', '${item.title.replace(/'/g, "\\'")}', 'reject')" style="background:rgba(239,68,68,0.08);color:#ef4444;border:1px solid rgba(239,68,68,0.2);border-radius:6px;padding:8px 16px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">
+        <button onclick="openPromoteModal('${item.id}', '${item.title.replace(/'/g, "\\'")}', 'reject')"
+          data-abac-action="approve" data-abac-resource="approvals"
+          style="background:rgba(239,68,68,0.08);color:#ef4444;border:1px solid rgba(239,68,68,0.2);border-radius:6px;padding:8px 16px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">
           Reject Candidate
         </button>
       </div>` : ''}
@@ -61,9 +64,10 @@ export function createCanonRoute() {
     const repo = createRepo(c.env.DB)
     const isAuth = await isAuthenticated(c, c.env)
 
-    const [candidates, promotions] = await Promise.all([
+    const [candidates, promotions, abacConfigs] = await Promise.all([
       repo.getCanonCandidates(),
       repo.getCanonPromotions(),
+      c.env.DB ? getAbacUiConfig(c.env.DB, 'canon') : []
     ])
 
     const active = candidates.filter(c => {
@@ -191,7 +195,8 @@ export function createCanonRoute() {
     document.getElementById('promote-modal').addEventListener('click', function(e) {
       if (e.target === this) closeModal()
     })
-    </script>`
+    </script>
+    ${generateAbacUiScript('canon', abacConfigs)}`
 
     return c.html(layout('Canon Promotion', content, '/canon'))
   })

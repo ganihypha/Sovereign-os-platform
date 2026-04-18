@@ -1,16 +1,12 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — ABAC HTTP MIDDLEWARE (P12)
-// Purpose: Wire abacService.checkAccess() as Hono middleware
-//          on sensitive POST routes.
-// Returns 403 JSON when access denied:
-//   { "error": "Access denied", "decision": "deny", "reason": "..." }
-// Default: fail-open (allow) if no applicable policy found
-// Non-blocking on DB error (edge-safe)
+// SOVEREIGN OS PLATFORM — ABAC HTTP MIDDLEWARE (P12+P13)
+// P13: Log deny events to abac_deny_log for analytics
 // ============================================================
 
 import type { Context, Next } from 'hono'
 import type { Env } from '../index'
 import { checkAccess, type AbacContext } from './abacService'
+import { logAbacDeny } from './abacUiService'
 
 // ============================================================
 // createAbacMiddleware — factory for route-specific ABAC guard
@@ -65,6 +61,15 @@ export function createAbacMiddleware(
       )
 
       if (!result.allowed) {
+        // P13: Log denial for analytics
+        logAbacDeny(c.env.DB, {
+          surface: resourceType,
+          resource_type: resourceType,
+          action,
+          subject_role: subjectValue,
+          tenant_id: tenantId
+        }).catch(() => {})
+
         return c.json(
           {
             error: 'Access denied',

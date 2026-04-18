@@ -140,6 +140,17 @@ export function layout(title: string, content: string, activePage: string = '', 
       <span class="nav-label">${n.label}</span>
       ${badgeHtml}
     </a>`
+  }).join('') + `<div class="nav-section-label">P13</div>` + [
+    { path: '/events/archive-stats', label: 'Event Archive', icon: '📦', badge: 'P13' },
+    { path: '/health-dashboard', label: 'Observability', icon: '📊', badge: 'P13' },
+  ].map(n => {
+    const isActive = activePage === n.path
+    const badgeHtml = `<span style="background:#8b5cf6;color:#fff;border-radius:10px;padding:0 5px;font-size:9px;font-weight:700;margin-left:auto">${n.badge}</span>`
+    return `<a href="${n.path}" class="nav-item${isActive ? ' active' : ''}">
+      <span class="nav-icon">${n.icon}</span>
+      <span class="nav-label">${n.label}</span>
+      ${badgeHtml}
+    </a>`
   }).join('')
 
   return `<!DOCTYPE html>

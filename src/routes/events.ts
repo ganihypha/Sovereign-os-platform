@@ -1,7 +1,8 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — EVENT BUS SURFACE (P11)
-// Purpose: Unified platform event stream — view, filter, mark read
+// SOVEREIGN OS PLATFORM — EVENT BUS SURFACE (P11+P13)
+// Purpose: Unified platform event stream — view, filter, mark read, archive
 // Surface: /events
+// P13 Additions: event auto-archive, retention, event type analytics
 // ============================================================
 
 import { Hono } from 'hono'
@@ -11,6 +12,9 @@ import {
   getEvents, getEventStats, markEventRead, markAllEventsRead, emitEvent,
   KNOWN_EVENT_TYPES, type PlatformEvent
 } from '../lib/eventBusService'
+import {
+  runEventArchive, getArchiveStats, getEventTypeAnalytics, getRetentionConfig, updateRetentionConfig
+} from '../lib/eventArchiveService'
 
 function severityBadge(severity: string): string {
   const map: Record<string, string> = {
@@ -43,7 +47,10 @@ export function createEventsRoute() {
     const page = Math.max(1, parseInt(c.req.query('page') || '1'))
     const limit = 50
 
-    const [{ events, total }, stats] = await Promise.all([
+    // P13: trigger auto-archive lazily on each /events load
+    if (c.env.DB) runEventArchive(c.env.DB).catch(() => {})
+
+    const [{ events, total }, stats, archiveStats, analytics] = await Promise.all([
       c.env.DB ? getEvents(c.env.DB, {
         severity: severity || undefined,
         source_surface: surface || undefined,
@@ -52,7 +59,9 @@ export function createEventsRoute() {
         limit,
         offset: (page - 1) * limit
       }) : { events: [], total: 0 },
-      c.env.DB ? getEventStats(c.env.DB) : { total: 0, unread: 0, by_severity: {}, by_surface: {}, recent_types: [] }
+      c.env.DB ? getEventStats(c.env.DB) : { total: 0, unread: 0, by_severity: {}, by_surface: {}, recent_types: [] },
+      c.env.DB ? getArchiveStats(c.env.DB) : { archived_total: 0, oldest_active_age_days: null, retention_days: 30, auto_archive_enabled: true, last_archive_entry: null },
+      c.env.DB ? getEventTypeAnalytics(c.env.DB) : { top_event_types: [], events_per_day: [] }
     ])
 
     const totalPages = Math.ceil(total / limit)
@@ -183,8 +192,35 @@ export function createEventsRoute() {
           </div>
         </div>
 
-        <!-- Sidebar -->
-        <div>
+          <div class="card" style="margin-bottom:16px">
+            <div class="card-header"><div class="card-title" style="font-size:12px">Archive & Retention</div></div>
+            <div style="padding:8px 16px">
+              <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Retention: <strong style="color:var(--text)">${archiveStats.retention_days} days</strong> | Auto: <strong style="color:${archiveStats.auto_archive_enabled ? '#4ade80' : '#f87171'}">${archiveStats.auto_archive_enabled ? 'ON' : 'OFF'}</strong></div>
+              <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Archived Total: <strong style="color:var(--text)">${archiveStats.archived_total}</strong></div>
+              ${archiveStats.oldest_active_age_days !== null ? `<div style="font-size:11px;color:var(--text3);margin-bottom:8px">Oldest Active: <strong style="color:${archiveStats.oldest_active_age_days > archiveStats.retention_days ? '#f87171' : 'var(--text)'}">${archiveStats.oldest_active_age_days}d</strong></div>` : ''}
+              <form action="/events/archive-old" method="POST">
+                <button type="submit" style="width:100%;background:rgba(251,191,36,0.1);color:#fbbf24;border:1px solid rgba(251,191,36,0.3);border-radius:4px;padding:5px 8px;font-size:10px;font-weight:600;cursor:pointer">Run Archive Now</button>
+              </form>
+            </div>
+          </div>
+          <div class="card" style="margin-bottom:16px">
+            <div class="card-header"><div class="card-title" style="font-size:12px">Top Event Types</div></div>
+            <div style="padding:8px 16px">
+              ${analytics.top_event_types.length > 0
+                ? analytics.top_event_types.map(t => `<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--border)"><span style="font-size:10px;color:var(--text2);font-family:monospace">${t.event_type}</span><span style="font-size:10px;color:var(--accent);font-weight:600">${t.count}</span></div>`).join('')
+                : '<div style="font-size:11px;color:var(--text3)">No data yet</div>'
+              }
+            </div>
+          </div>
+          <div class="card" style="margin-bottom:16px">
+            <div class="card-header"><div class="card-title" style="font-size:12px">Events/Day (7d)</div></div>
+            <div style="padding:8px 16px">
+              ${analytics.events_per_day.length > 0
+                ? analytics.events_per_day.map(d => `<div style="display:flex;justify-content:space-between;padding:3px 0"><span style="font-size:10px;color:var(--text3)">${d.date}</span><span style="font-size:10px;color:var(--accent);font-weight:600">${d.count}</span></div>`).join('')
+                : '<div style="font-size:11px;color:var(--text3)">No data</div>'
+              }
+            </div>
+          </div>
           <div class="card" style="margin-bottom:16px">
             <div class="card-header"><div class="card-title" style="font-size:12px">Top Sources</div></div>
             <div style="padding:8px 16px">
@@ -261,6 +297,34 @@ export function createEventsRoute() {
         })
       : { events: [], total: 0 }
     return c.json({ events, total, limit })
+  })
+
+  // POST /events/archive-old — P13: manually trigger event archive
+  route.post('/archive-old', async (c) => {
+    if (!c.env.DB) return c.json({ error: 'DB not available' }, 503)
+    const result = await runEventArchive(c.env.DB)
+    return c.redirect('/events?archived=1')
+  })
+
+  // GET /events/archive-stats — P13: JSON API for archive stats
+  route.get('/archive-stats', async (c) => {
+    if (!c.env.DB) return c.json({ error: 'DB not available' }, 503)
+    const [archiveStats, analytics] = await Promise.all([
+      getArchiveStats(c.env.DB),
+      getEventTypeAnalytics(c.env.DB)
+    ])
+    return c.json({ archive: archiveStats, analytics })
+  })
+
+  // POST /events/retention — P13: update retention config
+  route.post('/retention', async (c) => {
+    if (!c.env.DB) return c.json({ error: 'DB not available' }, 503)
+    const body = await c.req.parseBody()
+    const days = parseInt(body.retention_days as string || '30', 10)
+    const enabled = body.auto_archive_enabled !== undefined ? 'true' : 'false'
+    await updateRetentionConfig(c.env.DB, 'retention_days', String(Math.max(1, Math.min(365, days))))
+    await updateRetentionConfig(c.env.DB, 'auto_archive_enabled', enabled)
+    return c.redirect('/events')
   })
 
   return route

@@ -1,18 +1,23 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — APPROVALS ROUTE (P1)
+// SOVEREIGN OS PLATFORM — APPROVALS ROUTE (P1+P13)
+// P13: ABAC-aware UI — viewer role sees disabled action buttons
 // ============================================================
 import { Hono } from 'hono'
 import { layout, badgeStatus, badgeApprovalTier, timeAgo } from '../layout'
 import { createRepo } from '../lib/repo'
 import type { Env } from '../index'
 import { abacGuardApprove } from '../lib/abacMiddleware'
+import { getAbacUiConfig, generateAbacUiScript } from '../lib/abacUiService'
 
 export function createApprovalsRoute() {
   const route = new Hono<{ Bindings: Env }>()
 
   route.get('/', async (c) => {
     const repo = createRepo(c.env.DB)
-    const approvals = await repo.getApprovalRequests()
+    const [approvals, abacConfigs] = await Promise.all([
+      repo.getApprovalRequests(),
+      c.env.DB ? getAbacUiConfig(c.env.DB, 'approvals') : []
+    ])
 
     const pending = approvals.filter(a => a.status === 'pending')
     const resolved = approvals.filter(a => a.status !== 'pending')
@@ -84,9 +89,9 @@ export function createApprovalsRoute() {
             <input type="text" name="approved_by" placeholder="Your name / role" value="${a.approval_tier >= 3 ? 'Founder' : 'Operator'}">
           </div>
           <div class="btn-group">
-            <button type="submit" name="action" value="approved" class="btn btn-green">✓ Approve</button>
-            <button type="submit" name="action" value="returned" class="btn btn-yellow">↩ Return for Clarification</button>
-            <button type="submit" name="action" value="rejected" class="btn btn-red">✗ Reject</button>
+            <button type="submit" name="action" value="approved" class="btn btn-green" data-abac-action="approve" data-abac-resource="approvals">✓ Approve</button>
+            <button type="submit" name="action" value="returned" class="btn btn-yellow" data-abac-action="approve" data-abac-resource="approvals">↩ Return for Clarification</button>
+            <button type="submit" name="action" value="rejected" class="btn btn-red" data-abac-action="approve" data-abac-resource="approvals">✗ Reject</button>
           </div>
         </form>
       </div>`).join('') : `
@@ -145,6 +150,8 @@ export function createApprovalsRoute() {
         </form>
       </div>`
 
+    const abacScript = generateAbacUiScript('approvals', abacConfigs)
+
     const content = `
       <div class="law-bar">Approval Model: Sensitive or irreversible actions must be human-gated. Tier determines who approves and how. Every approval must have traceable audit trail.</div>
 
@@ -166,7 +173,8 @@ export function createApprovalsRoute() {
           <thead><tr><th>ID</th><th>Action</th><th>Tier</th><th>Requested By</th><th>Status</th><th>Approved By</th><th>Reason</th><th>Resolved</th></tr></thead>
           <tbody>${auditRows || '<tr><td colspan="8" class="text-muted">No resolved approvals</td></tr>'}</tbody>
         </table>
-      </div>`
+      </div>
+      ${abacScript}`
 
     return c.html(layout('Approval Queue', content, '/approvals'))
   })
