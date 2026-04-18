@@ -207,5 +207,53 @@ export function createPoliciesRoute() {
     return c.redirect('/policies')
   })
 
+  // POST /policies/simulate — P11: ABAC dry-run simulation (JSON API)
+  route.post('/simulate', async (c) => {
+    if (!c.env.DB) return c.json({ error: 'Database not available' }, 503)
+    let body: Record<string, any>
+    try {
+      body = await c.req.json()
+    } catch {
+      return c.json({ error: 'Invalid JSON body' }, 400)
+    }
+
+    const { subject_type, subject_value, resource_type, action, tenant_id } = body
+    if (!subject_type || !subject_value || !resource_type || !action) {
+      return c.json({ error: 'Required fields: subject_type, subject_value, resource_type, action' }, 400)
+    }
+
+    const { loadPolicies, enforceAbac } = await import('../lib/abacService')
+    const policies = await loadPolicies(c.env.DB, tenant_id || 'tenant-default')
+    const ctx = { subject_type, subject_value, resource_type, action, tenant_id }
+    const decision = enforceAbac(policies, ctx)
+    const allowed = decision === 'allow' || decision === 'not-applicable'
+
+    // Find matched policies for transparency
+    const matched = policies.filter(p => {
+      if (p.subject_type !== subject_type) return false
+      if (p.subject_value !== subject_value && p.subject_value !== '*') return false
+      if (p.resource_type !== resource_type && p.resource_type !== '*') return false
+      if (p.action !== action && p.action !== '*') return false
+      return true
+    })
+
+    return c.json({
+      decision,
+      allowed,
+      reason: decision === 'not-applicable'
+        ? 'No applicable policy found — default: allow (governance-first)'
+        : `Policy evaluation: ${decision} for ${subject_type}:${subject_value} on ${resource_type}:${action}`,
+      policies_evaluated: policies.length,
+      matched_policies: matched.map(p => ({
+        id: p.id,
+        name: p.name,
+        effect: p.effect,
+        priority: p.priority,
+        status: p.status
+      })),
+      context: ctx
+    })
+  })
+
   return route
 }

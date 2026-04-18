@@ -1,5 +1,6 @@
 // src/lib/workflowService.ts
 // P9 — Workflow automation service (trigger chains: event → condition → action)
+// P11 — Enhanced: multi-step chains, send_email, create_approval, trigger_webhook, retry
 // ai-generated [human-confirmation-gate: required before canonization]
 
 import { createNotification } from './notificationService'
@@ -13,6 +14,10 @@ export interface Workflow {
   trigger_event: string
   condition_json: string
   action_json: string
+  steps_json?: string       // P11: JSON array of sequential action steps
+  max_retries: number       // P11: max retry attempts
+  retry_delay_seconds: number // P11: delay between retries
+  last_error?: string        // P11: last error message
   template_id?: string
   status: string
   created_by: string
@@ -30,6 +35,8 @@ export interface WorkflowRun {
   status: string
   output_summary?: string
   error_message?: string
+  retry_of?: string         // P11: ID of the run this is retrying
+  step_results_json?: string // P11: per-step execution results
   started_at: string
   completed_at?: string
 }
@@ -41,6 +48,9 @@ export interface CreateWorkflowInput {
   trigger_event: string
   condition_json?: Record<string, any>
   action_json?: Record<string, any>
+  steps?: Array<{ type: string; params: Record<string, any> }>  // P11: multi-step
+  max_retries?: number
+  retry_delay_seconds?: number
   created_by?: string
 }
 
@@ -125,12 +135,15 @@ export async function createWorkflow(
   const created_by = input.created_by || 'system'
   const condition_json = JSON.stringify(input.condition_json || {})
   const action_json = JSON.stringify(input.action_json || {})
+  const steps_json = input.steps ? JSON.stringify(input.steps) : null
+  const max_retries = input.max_retries ?? 0
+  const retry_delay_seconds = input.retry_delay_seconds ?? 60
 
   await db.prepare(`
-    INSERT INTO workflows (id, tenant_id, name, description, trigger_event, condition_json, action_json, status, created_by, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?)
+    INSERT INTO workflows (id, tenant_id, name, description, trigger_event, condition_json, action_json, steps_json, max_retries, retry_delay_seconds, status, created_by, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?)
   `).bind(id, tenant_id, input.name, input.description || null,
-    input.trigger_event, condition_json, action_json, created_by, now, now).run()
+    input.trigger_event, condition_json, action_json, steps_json, max_retries, retry_delay_seconds, created_by, now, now).run()
 
   return (await getWorkflowById(db, id))!
 }
@@ -185,52 +198,92 @@ export async function getWorkflowRuns(
   return result.results || []
 }
 
-// Execute a workflow (trigger chain: evaluate condition → run action)
+// Execute a workflow (P11: multi-step support)
 export async function executeWorkflow(
   db: D1Database,
   kv: KVNamespace,
   workflow: Workflow,
   triggered_by: string,
-  input_data: Record<string, any>
+  input_data: Record<string, any>,
+  retry_of?: string
 ): Promise<WorkflowRun> {
   const run_id = generateId('wfrun')
   const started_at = new Date().toISOString()
 
+  // Determine if multi-step or single-action
+  let steps: Array<{ type: string; params: Record<string, any> }> = []
+  if (workflow.steps_json) {
+    try { steps = JSON.parse(workflow.steps_json) } catch { steps = [] }
+  }
+  // Fallback to single action_json if no steps
+  if (!steps || steps.length === 0) {
+    try {
+      const action = JSON.parse(workflow.action_json)
+      steps = [{ type: action.type || 'create_notification', params: action }]
+    } catch { steps = [] }
+  }
+
   // Insert run record as 'running'
   await db.prepare(`
-    INSERT INTO workflow_runs (id, workflow_id, triggered_by, input_json, status, started_at)
-    VALUES (?, ?, ?, ?, 'running', ?)
-  `).bind(run_id, workflow.id, triggered_by, JSON.stringify(input_data), started_at).run()
+    INSERT INTO workflow_runs (id, workflow_id, triggered_by, input_json, status, retry_of, started_at)
+    VALUES (?, ?, ?, ?, 'running', ?, ?)
+  `).bind(run_id, workflow.id, triggered_by, JSON.stringify(input_data), retry_of || null, started_at).run()
 
   let status = 'success'
   let output_summary = ''
   let error_message: string | undefined
+  const stepResults: Array<{ step: number; type: string; status: string; result?: string; error?: string }> = []
 
   try {
-    const action = JSON.parse(workflow.action_json)
     const condition = JSON.parse(workflow.condition_json)
-
-    // Evaluate condition (simple: always true, or check field match)
     const conditionMet = evaluateCondition(condition, input_data)
+
     if (!conditionMet) {
       status = 'skipped'
       output_summary = 'Condition not met — workflow skipped'
+    } else if (steps.length === 0) {
+      status = 'success'
+      output_summary = 'No steps defined — workflow acknowledged'
     } else {
-      // Execute action
-      output_summary = await executeAction(db, kv, action, workflow.tenant_id, triggered_by)
+      // Multi-step execution
+      for (let i = 0; i < steps.length; i++) {
+        const step = steps[i]
+        try {
+          const result = await executeAction(db, kv, { type: step.type, ...step.params }, workflow.tenant_id, triggered_by)
+          stepResults.push({ step: i + 1, type: step.type, status: 'ok', result })
+        } catch (err: any) {
+          stepResults.push({ step: i + 1, type: step.type, status: 'error', error: err.message })
+          status = 'failed'
+          error_message = `Step ${i + 1} (${step.type}) failed: ${err.message}`
+          break
+        }
+      }
+      if (status !== 'failed') {
+        status = 'success'
+        output_summary = `Executed ${stepResults.length} step(s) successfully`
+      } else {
+        output_summary = error_message || 'Workflow failed'
+      }
     }
   } catch (err: any) {
     status = 'failed'
     error_message = err.message || 'Unknown error'
+    output_summary = error_message
   }
 
   const completed_at = new Date().toISOString()
 
   // Update run record
   await db.prepare(`
-    UPDATE workflow_runs SET status = ?, output_summary = ?, error_message = ?, completed_at = ?
+    UPDATE workflow_runs SET status = ?, output_summary = ?, error_message = ?, step_results_json = ?, completed_at = ?
     WHERE id = ?
-  `).bind(status, output_summary, error_message || null, completed_at, run_id).run()
+  `).bind(status, output_summary, error_message || null, JSON.stringify(stepResults), completed_at, run_id).run()
+
+  // Update last_error on workflow if failed
+  if (status === 'failed') {
+    await db.prepare(`UPDATE workflows SET last_error = ?, updated_at = ? WHERE id = ?`)
+      .bind(error_message, completed_at, workflow.id).run()
+  }
 
   // Log to audit_log_v2
   try {
@@ -253,9 +306,32 @@ export async function executeWorkflow(
     status,
     output_summary,
     error_message,
+    retry_of,
+    step_results_json: JSON.stringify(stepResults),
     started_at,
     completed_at
   }
+}
+
+// P11: Retry a failed workflow run
+export async function retryWorkflowRun(
+  db: D1Database,
+  kv: KVNamespace,
+  original_run_id: string
+): Promise<WorkflowRun | null> {
+  try {
+    const originalRun = await db.prepare(`SELECT * FROM workflow_runs WHERE id = ?`).bind(original_run_id).first<WorkflowRun>()
+    if (!originalRun) return null
+    if (originalRun.status !== 'failed') return null
+
+    const workflow = await getWorkflowById(db, originalRun.workflow_id)
+    if (!workflow || workflow.status !== 'active') return null
+
+    let input_data: Record<string, any> = {}
+    try { input_data = JSON.parse(originalRun.input_json) } catch { input_data = {} }
+
+    return await executeWorkflow(db, kv, workflow, originalRun.triggered_by, input_data, original_run_id)
+  } catch { return null }
 }
 
 function evaluateCondition(condition: Record<string, any>, input: Record<string, any>): boolean {
@@ -306,6 +382,65 @@ async function executeAction(
       surface: 'workflows'
     })
     return `Audit event logged`
+  }
+
+  // P11: send_email — graceful degradation if RESEND_API_KEY not configured
+  if (action.type === 'send_email') {
+    await writeAuditEvent(db, {
+      event_type: 'workflow_email_intent',
+      object_type: 'workflow',
+      object_id: 'email',
+      actor,
+      tenant_id,
+      payload_summary: `Email intent: ${action.subject || '(no subject)'} → ${action.recipient || '(no recipient)'}`,
+      surface: 'workflows'
+    })
+    return `Email intent logged (requires RESEND_API_KEY for live delivery): ${action.recipient || ''}`
+  }
+
+  // P11: create_approval — auto-create an approval request from workflow
+  if (action.type === 'create_approval') {
+    try {
+      const approvalId = 'apr-wf-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 5)
+      const now = new Date().toISOString()
+      await db.prepare(`
+        INSERT INTO approval_requests (id, title, description, approval_tier, status, submitted_by, tenant_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?)
+      `).bind(
+        approvalId,
+        action.title || 'Workflow Auto-Approval Request',
+        action.description || `Auto-created by workflow engine for ${actor}`,
+        action.tier ?? 1,
+        `workflow-engine:${actor}`,
+        tenant_id,
+        now, now
+      ).run()
+      return `Approval request created: ${approvalId}`
+    } catch (err: any) {
+      return `Approval creation failed: ${err.message}`
+    }
+  }
+
+  // P11: trigger_webhook — fire external webhook
+  if (action.type === 'trigger_webhook') {
+    const webhookUrl = action.url
+    if (!webhookUrl) return 'trigger_webhook: no url provided (skipped)'
+    try {
+      const resp = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          event_type: 'workflow.triggered',
+          actor,
+          tenant_id,
+          payload: action.payload || {},
+          timestamp: new Date().toISOString()
+        })
+      })
+      return `Webhook fired: ${resp.status}`
+    } catch (err: any) {
+      return `Webhook fire failed: ${err.message} (non-blocking)`
+    }
   }
 
   return `Action type "${action.type}" acknowledged (no-op)`

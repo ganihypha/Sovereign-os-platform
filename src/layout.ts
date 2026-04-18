@@ -53,6 +53,11 @@ export function layout(title: string, content: string, activePage: string = '', 
     { path: '/policies', label: 'ABAC Policies', icon: '🔐', badge: 'P10' }, // P10 — ABAC policy editor
     { path: '/alert-rules', label: 'Alert Rules', icon: '🔔', badge: 'P10' }, // P10 — alert rules engine
   ]
+  const navP11 = [
+    { path: '/remediation', label: 'Remediation', icon: '🛠️', badge: 'P11' }, // P11 — auto-remediation playbooks
+    { path: '/events', label: 'Event Bus', icon: '📡', badge: 'P11' },         // P11 — unified event stream
+    { path: '/docs', label: 'Dev Docs', icon: '📖', badge: 'P11' },           // P11 — developer documentation
+  ]
 
   const navItems = navP0P3.map(n => {
     const isActive = activePage === n.path
@@ -109,6 +114,14 @@ export function layout(title: string, content: string, activePage: string = '', 
   }).join('') + `<div class="nav-section-label">P10</div>` + navP10.map(n => {
     const isActive = activePage === n.path || activePage.startsWith(n.path.split('?')[0])
     const badgeHtml = `<span style="background:#f97316;color:#fff;border-radius:10px;padding:0 5px;font-size:9px;font-weight:700;margin-left:auto">${n.badge}</span>`
+    return `<a href="${n.path}" class="nav-item${isActive ? ' active' : ''}">
+      <span class="nav-icon">${n.icon}</span>
+      <span class="nav-label">${n.label}</span>
+      ${badgeHtml}
+    </a>`
+  }).join('') + `<div class="nav-section-label">P11</div>` + navP11.map(n => {
+    const isActive = activePage === n.path || activePage.startsWith(n.path)
+    const badgeHtml = `<span style="background:#8b5cf6;color:#fff;border-radius:10px;padding:0 5px;font-size:9px;font-weight:700;margin-left:auto">${n.badge}</span>`
     return `<a href="${n.path}" class="nav-item${isActive ? ' active' : ''}">
       <span class="nav-icon">${n.icon}</span>
       <span class="nav-label">${n.label}</span>

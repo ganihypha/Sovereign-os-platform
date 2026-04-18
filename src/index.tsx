@@ -1,6 +1,6 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — MAIN ENTRY (P10 — ENHANCED GOVERNANCE, API V2, ABAC, ALERT RULES)
-// Version: 1.0.0-P10
+// SOVEREIGN OS PLATFORM — MAIN ENTRY (P11 — ABAC ENFORCEMENT, WORKFLOW V2, REMEDIATION, EVENT BUS)
+// Version: 1.1.0-P11
 // Platform: Cloudflare Pages + Workers
 // Hono Framework — Edge-first
 // ============================================================
@@ -62,6 +62,11 @@ import { createApiV2Route } from './routes/apiv2'
 import { createPoliciesRoute } from './routes/policies'
 import { createAlertRulesRoute } from './routes/alertRules'
 
+// Route imports — P11 new surfaces
+import { createRemediationRoute } from './routes/remediation'
+import { createEventsRoute } from './routes/events'
+import { createDocsRoute } from './routes/docs'
+
 export type Env = {
   DB?: D1Database
   RATE_LIMITER_KV?: KVNamespace   // P6: KV-backed distributed rate limiter (optional — falls back to in-memory)
@@ -74,6 +79,7 @@ export type Env = {
   // P8: no new required secrets. OPENAI_API_KEY already handles anomaly detection.
   // P9: no new required secrets. SSE, workflows, portal, health-dashboard use existing bindings.
   // P10: no new required secrets. ABAC, alert rules, API v2, reports use existing D1 + KV.
+  // P11: no new required secrets. Remediation, events, docs use existing D1 + KV.
 }
 
 const app = new Hono<{ Bindings: Env }>()
@@ -185,6 +191,15 @@ app.route('/policies', createPoliciesRoute())
 // P10: Alert Rules Engine
 app.route('/alert-rules', createAlertRulesRoute())
 
+// P11: Auto-Remediation Playbooks
+app.route('/remediation', createRemediationRoute())
+
+// P11: Unified Platform Event Bus
+app.route('/events', createEventsRoute())
+
+// P11: Developer Documentation & SDK Guide
+app.route('/docs', createDocsRoute())
+
 // P6: Tenant namespace path routing — /t/:slug/*
 // P7: Injects tenant branding CSS into routing context
 app.use('/t/:slug/*', async (c, next) => {
@@ -240,8 +255,8 @@ app.get('/health', (c) => {
   return c.json({
     status: 'ok',
     platform: 'Sovereign OS Platform',
-    version: '1.0.0-P10',
-    phase: 'P10 — Enhanced Governance, API v2, ABAC, Alert Rules',
+    version: '1.1.0-P11',
+    phase: 'P11 — ABAC Enforcement, Workflow v2, Remediation, Event Bus',
     persistence: repo.isPersistent ? 'd1' : 'in-memory',
     auth_configured: !!c.env.PLATFORM_API_KEY,
     kv_rate_limiter: !!c.env.RATE_LIMITER_KV ? 'kv-enforced' : 'in-memory-partial',
@@ -265,8 +280,8 @@ app.get('/status', async (c) => {
     return c.json({
       status: 'operational',
       platform: 'Sovereign OS Platform',
-      version: '1.0.0-P10',
-      phase: 'P10 — Enhanced Governance, API v2, ABAC, Alert Rules',
+      version: '1.1.0-P11',
+      phase: 'P11 — ABAC Enforcement, Workflow v2, Remediation, Event Bus',
       persistence: repo.isPersistent ? 'd1-persistent' : 'in-memory-ephemeral',
       auth_configured: !!c.env.PLATFORM_API_KEY,
       kv_rate_limiter: !!c.env.RATE_LIMITER_KV ? 'kv-enforced' : 'in-memory-partial',
@@ -310,6 +325,10 @@ app.get('/status', async (c) => {
         api_v2: 'active',          // P10 — /api/v2
         policies: 'active',        // P10 — /policies
         alert_rules: 'active',     // P10 — /alert-rules
+        remediation: 'active',     // P11 — /remediation
+        events: 'active',          // P11 — /events
+        docs: 'active',            // P11 — /docs
+        policies_simulate: 'active', // P11 — /policies/simulate
       },
       counts: {
         sessions: sessions.length,
@@ -324,7 +343,7 @@ app.get('/status', async (c) => {
     return c.json({
       status: 'degraded',
       platform: 'Sovereign OS Platform',
-      version: '1.0.0-P10',
+      version: '1.1.0-P11',
       error: 'Could not read platform state',
       persistence: 'unknown',
       timestamp: new Date().toISOString(),

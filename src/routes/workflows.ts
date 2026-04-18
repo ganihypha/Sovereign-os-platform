@@ -29,6 +29,7 @@ import {
   approveWorkflow,
   deactivateWorkflow,
   executeWorkflow,
+  retryWorkflowRun,
   WORKFLOW_TEMPLATES
 } from '../lib/workflowService'
 
@@ -408,4 +409,17 @@ workflowsRoute.post('/:id/trigger', async (c) => {
 
   await executeWorkflow(db, kv, wf, 'manual-trigger', { source: 'manual', workflow_id: id })
   return c.redirect(`/workflows/${id}?triggered=1`)
+})
+
+// POST /workflows/:run_id/retry — P11: Retry a failed workflow run
+workflowsRoute.post('/:run_id/retry', async (c) => {
+  const db = c.env.DB
+  const kv = c.env.RATE_LIMITER_KV
+  const run_id = c.req.param('run_id')
+
+  const newRun = await retryWorkflowRun(db, kv, run_id)
+  if (!newRun) return c.json({ error: 'Cannot retry: run not found, not failed, or workflow not active' }, 400)
+
+  // Redirect to workflow detail if we can find workflow_id
+  return c.redirect(`/workflows/${newRun.workflow_id}?retry=1`)
 })
