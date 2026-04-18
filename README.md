@@ -14,15 +14,15 @@ requirements, and a stable canon layer that survives sessions.
 
 | Item | Value |
 |------|-------|
-| **Version** | `1.0.0-P10` |
-| **Phase** | P10 — Enhanced Governance, API v2, ABAC, Alert Rules |
+| **Version** | `1.1.0-P11` |
+| **Phase** | P11 — ABAC Enforcement, Workflow v2, Remediation, Event Bus |
 | **Status** | ✅ LIVE-VERIFIED |
 | **Production** | https://sovereign-os-platform.pages.dev |
 | **GitHub** | https://github.com/ganihypha/Sovereign-os-platform |
-| **Latest Commit** | `14ca9cf` |
+| **Latest Commit** | `7e40f32` |
 | **D1 Database** | `sovereign-os-production` (f6067325-9ea4-44bc-a5fd-e3d19367e657) |
-| **Migrations Applied** | 0001 → 0010 |
-| **Active Surfaces** | 37 total |
+| **Migrations Applied** | 0001 → 0011 |
+| **Active Surfaces** | 41 total |
 | **KV Namespace** | RATE_LIMITER_KV (b36f941ace3445d68d335d8cebc0803a) |
 
 ---
@@ -49,10 +49,14 @@ requirements, and a stable canon layer that survives sessions.
 | `https://sovereign-os-platform.pages.dev/api/v2/docs` | API v2 Documentation (P10) |
 | `https://sovereign-os-platform.pages.dev/policies` | ABAC Policy Editor (P10) |
 | `https://sovereign-os-platform.pages.dev/alert-rules` | Alert Rules Engine (P10) |
+| `https://sovereign-os-platform.pages.dev/remediation` | Auto-Remediation Playbooks (P11) |
+| `https://sovereign-os-platform.pages.dev/events` | Unified Event Bus (P11) |
+| `https://sovereign-os-platform.pages.dev/docs` | Developer Documentation (P11) |
+| `https://sovereign-os-platform.pages.dev/policies/simulate` | ABAC Dry-Run Simulate (P11) |
 
 ---
 
-## Active Surfaces (37 total — all LIVE-VERIFIED)
+## Active Surfaces (41 total — all LIVE-VERIFIED)
 
 ### P0 Core (8 surfaces)
 | Surface | Path | Role |
@@ -130,6 +134,14 @@ requirements, and a stable canon layer that survives sessions.
 | ABAC Policies | `/policies` | Attribute-Based Access Control policy editor (subject/resource/action/effect) |
 | Alert Rules | `/alert-rules` | Alert rules engine — condition→threshold→action, live metrics display |
 
+### P11 — NEW (4 surfaces)
+| Surface | Path | Role |
+|---------|------|------|
+| Auto-Remediation | `/remediation` | Playbooks for automated incident response — trigger, run, audit |
+| Event Bus | `/events` | Unified platform event stream — filter, read, emit test events |
+| Developer Docs | `/docs` | SDK documentation hub — quickstart, API v2, auth, webhooks, ABAC, workflows |
+| ABAC Simulate | `/policies/simulate` | Dry-run ABAC decision endpoint (POST JSON) |
+
 ---
 
 ## P10 Feature Summary
@@ -168,6 +180,48 @@ requirements, and a stable canon layer that survives sessions.
 - Live metric display: current value vs threshold shown in UI
 - 3 default rules: high pending approvals, blocked executions, unread alerts
 - Manual evaluation: POST /alert-rules/evaluate
+
+---
+
+## P11 Feature Summary
+
+### 1. Auto-Remediation ✅ LIVE
+- Playbooks: name, trigger_event, multi-step action_steps_json
+- Action types: create_notification | log_audit | trigger_webhook | send_email | update_status
+- Manual trigger + event-driven trigger (triggerPlaybooksByEvent)
+- Run history: steps_total, steps_completed, result_json, error_message
+- All runs logged to audit_log_v2 (SHA-256)
+- 3 default playbooks seeded: stale alert, blocked execution, high approval queue
+
+### 2. Unified Event Bus ✅ LIVE
+- platform_events table: event_type, source_surface, actor, severity (info/warning/error/critical)
+- Filter: severity, surface, event_type, unread_only, pagination
+- JSON API: GET /events/api
+- Emit test events from UI
+- 41 documented known event types
+- Mark read / mark all read
+
+### 3. Developer Documentation ✅ LIVE
+- Hub at /docs with navigation
+- /docs/quickstart — 5-minute getting started guide
+- /docs/api-v2 — complete API v2 endpoint reference
+- /docs/authentication — API key + session auth guide
+- /docs/webhooks — webhook delivery + P11 retry queue
+- /docs/abac — ABAC policy model + simulate guide
+- /docs/workflows — multi-step workflows + action types
+
+### 4. ABAC Policy Simulation ✅ LIVE
+- POST /policies/simulate — dry-run ABAC decision (no auth required)
+- Returns: decision, allowed, reason, policies_evaluated, matched_policies, context
+- viewer:delete → DENY (pol-003 Deny Viewer Delete)
+- admin:approve → ALLOW (pol-001 Admin Full Access)
+
+### 5. Workflow v2 Enhancements ✅ LIVE
+- Multi-step workflows via steps_json (sequential action chain)
+- New action types: send_email (graceful degradation), create_approval, trigger_webhook
+- Workflow run retry: POST /workflows/:run_id/retry
+- Step-level result tracking: step_results_json per run
+- last_error field on workflow for failed run tracking
 
 ---
 
