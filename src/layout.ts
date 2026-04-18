@@ -22,12 +22,15 @@ export function layout(title: string, content: string, activePage: string = '', 
     { path: '/alerts', label: 'Alerts', icon: '◉', badge: alertCount > 0 ? String(alertCount) : '' },  // P4
     { path: '/canon', label: 'Canon', icon: '▣', badge: '' },             // P4
     { path: '/lanes', label: 'Lanes', icon: '⊟', badge: '' },             // P4
-    { path: '/reports', label: 'Reports', icon: '⬠', badge: '' },         // P4
+    { path: '/onboarding', label: 'Onboarding', icon: '⬠', badge: '' },  // P4
   ]
   const navP5 = [
     { path: '/tenants', label: 'Tenants', icon: '⊛', badge: '' },         // P5
     { path: '/ai-assist', label: 'AI Assist', icon: '◎', badge: '' },     // P5
     { path: '/api-keys', label: 'API Keys', icon: '⊕', badge: '' },       // P5
+  ]
+  const navP6 = [
+    { path: '/reports', label: 'Observability', icon: '⧠', badge: 'P6' }, // P6 — upgraded
   ]
 
   const navItems = navP0P3.map(n => {
@@ -49,6 +52,14 @@ export function layout(title: string, content: string, activePage: string = '', 
     return `<a href="${n.path}" class="nav-item${isActive ? ' active' : ''}">
       <span class="nav-icon">${n.icon}</span>
       <span class="nav-label">${n.label}</span>
+    </a>`
+  }).join('') + `<div class="nav-section-label">P6</div>` + navP6.map(n => {
+    const isActive = activePage === n.path
+    const badgeHtml = n.badge ? `<span style="background:#22c55e;color:#000;border-radius:10px;padding:0 5px;font-size:9px;font-weight:700;margin-left:auto">${n.badge}</span>` : ''
+    return `<a href="${n.path}" class="nav-item${isActive ? ' active' : ''}">
+      <span class="nav-icon">${n.icon}</span>
+      <span class="nav-label">${n.label}</span>
+      ${badgeHtml}
     </a>`
   }).join('')
 
@@ -341,11 +352,11 @@ export function layout(title: string, content: string, activePage: string = '', 
   <aside class="sidebar">
     <div class="sidebar-brand">
       <div class="brand-name">Sovereign OS</div>
-      <div class="brand-sub">Operating Platform v0.3</div>
+      <div class="brand-sub">Operating Platform v0.6</div>
     </div>
     <nav class="nav-section">${navItems}</nav>
     <div class="sidebar-footer">
-      P3 Operational<br>
+      P6 — Observability Active<br>
       No role collapse · No false verify
     </div>
   </aside>

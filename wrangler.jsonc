@@ -19,7 +19,7 @@
   //    npx wrangler pages secret put PLATFORM_API_KEY --project-name sovereign-os-platform
   //
   // FOR LOCAL DEV (sandbox):
-  //    npx wrangler pages dev dist --d1=sovereign-os-production --local
+  //    npx wrangler pages dev dist --d1=sovereign-os-production --local --kv=RATE_LIMITER_KV
   //    (auto-creates local SQLite in .wrangler/state/v3/d1/)
   //
   // CURRENT STATUS: database_id = REAL (production D1 created on 2026-04-16)
@@ -29,6 +29,29 @@
       "binding": "DB",
       "database_name": "sovereign-os-production",
       "database_id": "f6067325-9ea4-44bc-a5fd-e3d19367e657"
+    }
+  ],
+
+  // ============================================================
+  // KV NAMESPACE BINDING — P6: Distributed Rate Limiting
+  // ============================================================
+  // P6: KV-backed distributed rate limiter (replaces in-memory PARTIAL)
+  //
+  // CREATE KV NAMESPACES (run once):
+  //   npx wrangler kv:namespace create "RATE_LIMITER_KV"
+  //   npx wrangler kv:namespace create "RATE_LIMITER_KV" --preview
+  //
+  // Then replace id + preview_id below with the output IDs.
+  //
+  // CURRENT STATUS: placeholder IDs — must be created before production deploy.
+  //   After creation, update id + preview_id and redeploy.
+  //   Local dev: wrangler pages dev automatically creates local KV store.
+  // ============================================================
+  "kv_namespaces": [
+    {
+      "binding": "RATE_LIMITER_KV",
+      "id": "placeholder-kv-id",
+      "preview_id": "placeholder-kv-preview-id"
     }
   ]
 }

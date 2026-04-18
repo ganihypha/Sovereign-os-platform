@@ -1,8 +1,13 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — CROSS-LANE REPORTS (P4)
-// Real D1-aggregated metrics. No fake numbers.
+// SOVEREIGN OS PLATFORM — CROSS-LANE REPORTS (P6 UPGRADE)
+// P4: Real D1-aggregated metrics. No fake numbers.
+// P6: Added Chart.js visual observability charts.
+//     - Execution status donut chart
+//     - Session timeline bar chart
+//     - Approval funnel bar chart
+//     - Connector health pie chart
 // All metrics computed from actual D1 queries.
-// /reports — visual dashboard
+// /reports — visual dashboard with charts
 // /api/reports — JSON metrics endpoint
 // ============================================================
 
@@ -38,7 +43,7 @@ function statusBar(label: string, value: number, max: number, color: string): st
 export function createReportsRoute() {
   const route = new Hono<{ Bindings: Env }>()
 
-  // GET /reports — visual dashboard
+  // GET /reports — visual dashboard with Chart.js observability charts
   route.get('/', async (c) => {
     const repo = createRepo(c.env.DB)
 
@@ -71,6 +76,8 @@ export function createReportsRoute() {
       blocked_executions: execEntries.filter(e => e.status === 'blocked').length,
       total_executions: execEntries.length,
       active_connectors: connectors.filter(c => c.status === 'active').length,
+      pending_connectors: connectors.filter(c => c.status === 'pending').length,
+      inactive_connectors: connectors.filter(c => c.status === 'inactive').length,
       total_connectors: connectors.length,
       pending_proofs: proofs.filter(p => p.status === 'pending').length,
       reviewed_proofs: proofs.filter(p => p.status === 'reviewed').length,
@@ -88,11 +95,27 @@ export function createReportsRoute() {
       now_items: priorities.filter(p => p.category === 'NOW' && !p.resolved).length,
     }
 
+    // Build last-7-days session data from actual session created_at timestamps
+    const last7Days: string[] = []
+    const sessionCountByDay: number[] = []
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date()
+      d.setDate(d.getDate() - i)
+      const label = d.toLocaleDateString('en', { month: 'short', day: 'numeric' })
+      last7Days.push(label)
+      const dateStr = d.toISOString().slice(0, 10)
+      sessionCountByDay.push(sessions.filter(s => s.created_at && s.created_at.startsWith(dateStr)).length)
+    }
+
     const content = `
+    <!-- Chart.js CDN — P6 Observability Charts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;flex-wrap:wrap;gap:12px">
       <div>
         <h1 style="font-size:20px;font-weight:700;color:var(--text);margin-bottom:4px">Cross-Lane Reports</h1>
         <div style="font-size:12px;color:var(--text2)">Real-time governance health metrics · All data from D1 · Generated ${new Date().toLocaleString()}</div>
+        <div style="margin-top:4px;font-size:11px;color:#22c55e">● P6 — Visual Observability Charts Active</div>
       </div>
       <a href="/api/reports" target="_blank" style="background:var(--bg2);color:var(--text2);border:1px solid var(--border);border-radius:6px;padding:8px 16px;font-size:12px;font-weight:600;text-decoration:none">
         Export JSON →
@@ -111,6 +134,59 @@ export function createReportsRoute() {
       ${metricCard('Active Blockers', metrics.blockers, `NOW items: ${metrics.now_items}`, metrics.blockers > 0 ? '#ef4444' : '#22c55e')}
     </div>
 
+    <!-- P6 OBSERVABILITY CHARTS ROW 1 -->
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:24px">
+
+      <!-- Chart 1: Execution Status Donut -->
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:20px">
+        <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px">Execution Status</div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:12px">Live breakdown from D1</div>
+        <div style="position:relative;height:180px;display:flex;align-items:center;justify-content:center">
+          <canvas id="execDonutChart" width="180" height="180"></canvas>
+        </div>
+        <div style="display:flex;gap:12px;justify-content:center;margin-top:8px;flex-wrap:wrap">
+          <span style="font-size:10px;color:#4f8ef7">● Running (${metrics.running_executions})</span>
+          <span style="font-size:10px;color:#22c55e">● Done (${metrics.done_executions})</span>
+          <span style="font-size:10px;color:#ef4444">● Blocked (${metrics.blocked_executions})</span>
+        </div>
+      </div>
+
+      <!-- Chart 2: Connector Health Pie -->
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:20px">
+        <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px">Connector Health</div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:12px">Registry status distribution</div>
+        <div style="position:relative;height:180px;display:flex;align-items:center;justify-content:center">
+          <canvas id="connPieChart" width="180" height="180"></canvas>
+        </div>
+        <div style="display:flex;gap:12px;justify-content:center;margin-top:8px;flex-wrap:wrap">
+          <span style="font-size:10px;color:#22d3ee">● Active (${metrics.active_connectors})</span>
+          <span style="font-size:10px;color:#f59e0b">● Pending (${metrics.pending_connectors})</span>
+          <span style="font-size:10px;color:#9aa3b2">● Inactive (${metrics.inactive_connectors})</span>
+        </div>
+      </div>
+
+      <!-- Chart 3: Approval Funnel -->
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:20px">
+        <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px">Approval Funnel</div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:12px">Pending vs Resolved</div>
+        <div style="position:relative;height:180px;display:flex;align-items:center;justify-content:center">
+          <canvas id="approvalBarChart" width="220" height="180"></canvas>
+        </div>
+        <div style="display:flex;gap:12px;justify-content:center;margin-top:8px;flex-wrap:wrap">
+          <span style="font-size:10px;color:#f59e0b">● Pending (${metrics.pending_approvals})</span>
+          <span style="font-size:10px;color:#22c55e">● Resolved (${metrics.resolved_approvals})</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- P6 CHART ROW 2 — Session Timeline -->
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:24px">
+      <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px">Session Activity — Last 7 Days</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:16px">Sessions created per day (from D1 timestamps)</div>
+      <canvas id="sessionTimelineChart" height="80"></canvas>
+    </div>
+
+    <!-- Legacy bar charts -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px">
       <!-- Execution Health -->
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:20px">
@@ -151,10 +227,119 @@ export function createReportsRoute() {
     </div>
 
     <div style="padding:12px 16px;background:rgba(79,142,247,0.06);border:1px solid rgba(79,142,247,0.15);border-radius:8px;font-size:11px;color:var(--text3)">
-      <span style="color:var(--accent);font-weight:600">Data Integrity:</span> All metrics are computed from real D1 database queries. 
-      No hardcoded or synthetic data exists in this report. Metrics refresh on each page load. 
+      <span style="color:var(--accent);font-weight:600">Data Integrity:</span> All metrics are computed from real D1 database queries.
+      No hardcoded or synthetic data exists in this report. Metrics refresh on each page load.
       Use <a href="/api/reports" style="color:var(--accent)">/api/reports</a> for programmatic access.
-    </div>`
+      <span style="color:#22c55e;margin-left:8px">● P6 Chart.js observability layer active.</span>
+    </div>
+
+    <!-- P6 Chart.js Initialization Scripts -->
+    <script>
+    (function() {
+      // Common chart options for dark theme
+      Chart.defaults.color = '#9aa3b2'
+      Chart.defaults.borderColor = '#2a2d35'
+      Chart.defaults.font.family = "'Inter', 'SF Mono', monospace"
+      Chart.defaults.font.size = 11
+
+      // 1. Execution Status Donut
+      const execCtx = document.getElementById('execDonutChart')
+      if (execCtx) {
+        new Chart(execCtx, {
+          type: 'doughnut',
+          data: {
+            labels: ['Running', 'Done', 'Blocked'],
+            datasets: [{
+              data: [${metrics.running_executions}, ${metrics.done_executions}, ${metrics.blocked_executions}],
+              backgroundColor: ['#4f8ef7', '#22c55e', '#ef4444'],
+              borderWidth: 0,
+              hoverOffset: 4
+            }]
+          },
+          options: {
+            responsive: false,
+            plugins: { legend: { display: false }, tooltip: { callbacks: { label: function(ctx) { return ' ' + ctx.label + ': ' + ctx.parsed } } } },
+            cutout: '65%'
+          }
+        })
+      }
+
+      // 2. Connector Health Pie
+      const connCtx = document.getElementById('connPieChart')
+      if (connCtx) {
+        new Chart(connCtx, {
+          type: 'pie',
+          data: {
+            labels: ['Active', 'Pending', 'Inactive'],
+            datasets: [{
+              data: [${metrics.active_connectors}, ${metrics.pending_connectors}, ${metrics.inactive_connectors}],
+              backgroundColor: ['#22d3ee', '#f59e0b', '#9aa3b2'],
+              borderWidth: 0,
+              hoverOffset: 4
+            }]
+          },
+          options: {
+            responsive: false,
+            plugins: { legend: { display: false }, tooltip: { callbacks: { label: function(ctx) { return ' ' + ctx.label + ': ' + ctx.parsed } } } }
+          }
+        })
+      }
+
+      // 3. Approval Funnel Bar
+      const appCtx = document.getElementById('approvalBarChart')
+      if (appCtx) {
+        new Chart(appCtx, {
+          type: 'bar',
+          data: {
+            labels: ['Pending', 'Resolved'],
+            datasets: [{
+              label: 'Approvals',
+              data: [${metrics.pending_approvals}, ${metrics.resolved_approvals}],
+              backgroundColor: ['#f59e0b', '#22c55e'],
+              borderRadius: 6,
+              borderSkipped: false
+            }]
+          },
+          options: {
+            responsive: false,
+            plugins: { legend: { display: false } },
+            scales: {
+              x: { grid: { display: false }, ticks: { color: '#9aa3b2' } },
+              y: { grid: { color: '#2a2d35' }, ticks: { color: '#9aa3b2', stepSize: 1 }, beginAtZero: true }
+            }
+          }
+        })
+      }
+
+      // 4. Session Timeline Bar (last 7 days)
+      const sessCtx = document.getElementById('sessionTimelineChart')
+      if (sessCtx) {
+        new Chart(sessCtx, {
+          type: 'bar',
+          data: {
+            labels: ${JSON.stringify(last7Days)},
+            datasets: [{
+              label: 'Sessions Created',
+              data: ${JSON.stringify(sessionCountByDay)},
+              backgroundColor: 'rgba(79,142,247,0.7)',
+              borderColor: '#4f8ef7',
+              borderWidth: 1,
+              borderRadius: 4,
+              borderSkipped: false
+            }]
+          },
+          options: {
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: {
+              x: { grid: { display: false }, ticks: { color: '#9aa3b2' } },
+              y: { grid: { color: '#2a2d35' }, ticks: { color: '#9aa3b2', stepSize: 1 }, beginAtZero: true }
+            }
+          }
+        })
+      }
+    })()
+    </script>`
 
     return c.html(layout('Reports', content, '/reports'))
   })

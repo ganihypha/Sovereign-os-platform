@@ -1,9 +1,9 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — PUBLIC API GATEWAY v1 (P5)
-// External API gateway with rate limiting.
+// SOVEREIGN OS PLATFORM — PUBLIC API GATEWAY v1 (P6 UPGRADE)
+// External API gateway with KV-backed distributed rate limiting.
 // Auth: Bearer token (public API key — separate from internal role keys)
 // Security: Never expose governance internals, secrets, or role details
-// Rate limiting: in-memory (PARTIAL — KV-backed is production target)
+// Rate limiting: KV-backed distributed (P6 upgrade from in-memory PARTIAL)
 // ============================================================
 
 import { Hono } from 'hono'
@@ -37,8 +37,8 @@ export function createApiV1Route() {
     return c.json({
       status: 'ok',
       platform: 'Sovereign OS Platform',
-      version: '0.5.0-P5',
-      phase: 'P5 — Multi-Tenant & AI-Augmented Operations',
+      version: '0.6.0-P6',
+      phase: 'P6 — Advanced Integration & Observability',
       api_version: 'v1',
       timestamp: new Date().toISOString(),
     })
@@ -60,10 +60,11 @@ export function createApiV1Route() {
         'GET /api/v1/status': 'Detailed platform status — requires valid API key (readonly)',
       },
       rate_limiting: {
-        status: 'PARTIAL — in-memory enforcement (KV-backed is production target)',
+        status: 'ACTIVE — KV-backed distributed rate limiting (falls back to in-memory if KV unavailable)',
         headers: ['X-RateLimit-Limit', 'X-RateLimit-Remaining', 'X-RateLimit-Reset', 'X-RateLimit-Policy'],
         default_limit: 100,
         window: '1 hour',
+        policy: 'kv-enforced (when KV binding available) | in-memory-partial (fallback)',
       },
       notes: [
         'Public API returns sanitized data only — no governance internals exposed',
@@ -100,8 +101,8 @@ export function createApiV1Route() {
       return c.json({ error: 'Invalid or revoked API key' }, 401)
     }
 
-    // Rate limiting check
-    const rateResult = checkRateLimit(apiKey.id, apiKey.rate_limit)
+  // Rate limiting check (P6: KV-backed if available, else in-memory fallback)
+    const rateResult = await checkRateLimit(apiKey.id, apiKey.rate_limit, 3600, c.env.RATE_LIMITER_KV)
     if (!rateResult.allowed) {
       return c.json(
         { error: 'Rate limit exceeded', retry_after: rateResult.resetAt },
@@ -179,8 +180,8 @@ export function createApiV1Route() {
 
     return c.json({
       status: 'operational',
-      version: '0.5.0-P5',
-      phase: 'P5 — Multi-Tenant & AI-Augmented Operations',
+      version: '0.6.0-P6',
+      phase: 'P6 — Advanced Integration & Observability',
       persistence: repo.isPersistent ? 'd1-persistent' : 'in-memory',
       metrics,
       timestamp: new Date().toISOString(),

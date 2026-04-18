@@ -1,6 +1,6 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — MAIN ENTRY (P5 — MULTI-TENANT & AI-AUGMENTED OPERATIONS)
-// Version: 0.5.0-P5
+// SOVEREIGN OS PLATFORM — MAIN ENTRY (P6 — ADVANCED INTEGRATION & OBSERVABILITY)
+// Version: 0.6.0-P6
 // Platform: Cloudflare Pages + Workers
 // Hono Framework — Edge-first
 // ============================================================
@@ -44,8 +44,9 @@ import { createRolesRoute } from './routes/roles'
 
 export type Env = {
   DB?: D1Database
+  RATE_LIMITER_KV?: KVNamespace   // P6: KV-backed distributed rate limiter (optional — falls back to in-memory)
   PLATFORM_API_KEY?: string
-  OPENAI_API_KEY?: string   // P5: optional — graceful degradation if missing
+  OPENAI_API_KEY?: string         // P5: optional — graceful degradation if missing
 }
 
 const app = new Hono<{ Bindings: Env }>()
@@ -120,6 +121,40 @@ app.route('/api-keys', createApiKeysRoute())
 // P5: Public API Gateway v1 (no auth middleware needed — handled internally)
 app.route('/api/v1', createApiV1Route())
 
+// P6: Tenant namespace path routing — /t/:slug/*
+// createTenantMiddleware resolves tenant context from path slug
+// All /t/:slug/* requests are routed to the standard surfaces with tenant context injected
+app.use('/t/:slug/*', async (c, next) => {
+  const { createRepo } = await import('./lib/repo')
+  const { createTenantMiddleware } = await import('./lib/tenantContext')
+  const repo = createRepo(c.env.DB)
+  const middleware = createTenantMiddleware(() => repo)
+  return middleware(c, next)
+})
+app.get('/t/:slug', (c) => {
+  const slug = c.req.param('slug')
+  return c.redirect(`/t/${slug}/dashboard`)
+})
+app.get('/t/:slug/dashboard', async (c) => {
+  const slug = c.req.param('slug')
+  const { createRepo } = await import('./lib/repo')
+  const repo = createRepo(c.env.DB)
+  const tenant = await repo.getTenantBySlug(slug)
+  if (!tenant || tenant.status !== 'active' || tenant.approval_status !== 'approved') {
+    return c.html(`<!DOCTYPE html><html><head><title>Tenant Not Found</title></head><body style="font-family:monospace;background:#0d0f14;color:#e2e8f0;padding:40px"><h2>Tenant Not Found</h2><p>Slug: <code>${slug}</code> — not found or not active.</p><a href="/tenants" style="color:#4f8ef7">← Tenant Registry</a></body></html>`, 404)
+  }
+  return c.redirect(`/dashboard?tenant=${slug}`)
+})
+app.get('/t/:slug/:surface', (c) => {
+  const slug = c.req.param('slug')
+  const surface = c.req.param('surface')
+  const allowed = ['dashboard','intent','intake','architect','approvals','proof','live','records','continuity','execution','connectors','roles','workspace','alerts','canon','lanes','onboarding','reports']
+  if (!allowed.includes(surface)) {
+    return c.json({ error: 'Unknown surface', tenant: slug, surface }, 404)
+  }
+  return c.redirect(`/${surface}?tenant=${slug}`)
+})
+
 // Internal API routes — apply requireApiAuth middleware
 app.use('/api/*', async (c, next) => {
   const authMiddleware = requireApiAuth(c.env)
@@ -142,10 +177,11 @@ app.get('/health', (c) => {
   return c.json({
     status: 'ok',
     platform: 'Sovereign OS Platform',
-    version: '0.5.0-P5',
-    phase: 'P5 — Multi-Tenant & AI-Augmented Operations',
+    version: '0.6.0-P6',
+    phase: 'P6 — Advanced Integration & Observability',
     persistence: repo.isPersistent ? 'd1' : 'in-memory',
     auth_configured: !!c.env.PLATFORM_API_KEY,
+    kv_rate_limiter: !!c.env.RATE_LIMITER_KV ? 'kv-enforced' : 'in-memory-partial',
     timestamp: new Date().toISOString(),
   })
 })
@@ -163,10 +199,11 @@ app.get('/status', async (c) => {
     return c.json({
       status: 'operational',
       platform: 'Sovereign OS Platform',
-      version: '0.5.0-P5',
-      phase: 'P5 — Multi-Tenant & AI-Augmented Operations',
+      version: '0.6.0-P6',
+      phase: 'P6 — Advanced Integration & Observability',
       persistence: repo.isPersistent ? 'd1-persistent' : 'in-memory-ephemeral',
       auth_configured: !!c.env.PLATFORM_API_KEY,
+      kv_rate_limiter: !!c.env.RATE_LIMITER_KV ? 'kv-enforced' : 'in-memory-partial',
       surfaces: {
         dashboard: 'active',
         intent: 'active',
@@ -186,11 +223,12 @@ app.get('/status', async (c) => {
         lanes: 'active',       // P4
         onboarding: 'active',  // P4
         reports: 'active',     // P4
-        tenants: 'active',     // P5
-        ai_assist: 'active',   // P5
-        api_keys: 'active',    // P5
-        api_v1: 'active',      // P5
+        tenants: 'active',          // P5
+        ai_assist: 'active',       // P5
+        api_keys: 'active',        // P5
+        api_v1: 'active',          // P5
         api: 'active',
+        tenant_routing: 'active',  // P6 — /t/:slug/* path routing
       },
       counts: {
         sessions: sessions.length,
@@ -205,7 +243,7 @@ app.get('/status', async (c) => {
     return c.json({
       status: 'degraded',
       platform: 'Sovereign OS Platform',
-      version: '0.5.0-P5',
+      version: '0.6.0-P6',
       error: 'Could not read platform state',
       persistence: 'unknown',
       timestamp: new Date().toISOString(),
