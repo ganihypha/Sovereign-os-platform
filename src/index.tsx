@@ -1,6 +1,6 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — MAIN ENTRY (P9 — REAL-TIME GOVERNANCE & ADVANCED AUTOMATION)
-// Version: 0.9.0-P9
+// SOVEREIGN OS PLATFORM — MAIN ENTRY (P10 — ENHANCED GOVERNANCE, API V2, ABAC, ALERT RULES)
+// Version: 1.0.0-P10
 // Platform: Cloudflare Pages + Workers
 // Hono Framework — Edge-first
 // ============================================================
@@ -57,6 +57,11 @@ import { workflowsRoute } from './routes/workflows'
 import { healthDashboardRoute } from './routes/healthDashboard'
 import { portalRoute } from './routes/portal'
 
+// Route imports — P10 new surfaces
+import { createApiV2Route } from './routes/apiv2'
+import { createPoliciesRoute } from './routes/policies'
+import { createAlertRulesRoute } from './routes/alertRules'
+
 export type Env = {
   DB?: D1Database
   RATE_LIMITER_KV?: KVNamespace   // P6: KV-backed distributed rate limiter (optional — falls back to in-memory)
@@ -68,6 +73,7 @@ export type Env = {
   CLERK_SECRET_KEY?: string       // P7: optional — SSO Clerk (never logged/returned)
   // P8: no new required secrets. OPENAI_API_KEY already handles anomaly detection.
   // P9: no new required secrets. SSE, workflows, portal, health-dashboard use existing bindings.
+  // P10: no new required secrets. ABAC, alert rules, API v2, reports use existing D1 + KV.
 }
 
 const app = new Hono<{ Bindings: Env }>()
@@ -169,6 +175,16 @@ app.route('/health-dashboard', healthDashboardRoute)
 // P9: Tenant Self-Service Portal
 app.route('/portal', portalRoute)
 
+// P10: API v2 — structured REST layer
+// IMPORTANT: mount BEFORE the /api/* auth middleware to allow public access with rate limiting
+app.route('/api/v2', createApiV2Route())
+
+// P10: ABAC Policy Editor
+app.route('/policies', createPoliciesRoute())
+
+// P10: Alert Rules Engine
+app.route('/alert-rules', createAlertRulesRoute())
+
 // P6: Tenant namespace path routing — /t/:slug/*
 // P7: Injects tenant branding CSS into routing context
 app.use('/t/:slug/*', async (c, next) => {
@@ -224,8 +240,8 @@ app.get('/health', (c) => {
   return c.json({
     status: 'ok',
     platform: 'Sovereign OS Platform',
-    version: '0.9.0-P9',
-    phase: 'P9 — Real-time Governance & Advanced Automation',
+    version: '1.0.0-P10',
+    phase: 'P10 — Enhanced Governance, API v2, ABAC, Alert Rules',
     persistence: repo.isPersistent ? 'd1' : 'in-memory',
     auth_configured: !!c.env.PLATFORM_API_KEY,
     kv_rate_limiter: !!c.env.RATE_LIMITER_KV ? 'kv-enforced' : 'in-memory-partial',
@@ -249,8 +265,8 @@ app.get('/status', async (c) => {
     return c.json({
       status: 'operational',
       platform: 'Sovereign OS Platform',
-      version: '0.9.0-P9',
-      phase: 'P9 — Real-time Governance & Advanced Automation',
+      version: '1.0.0-P10',
+      phase: 'P10 — Enhanced Governance, API v2, ABAC, Alert Rules',
       persistence: repo.isPersistent ? 'd1-persistent' : 'in-memory-ephemeral',
       auth_configured: !!c.env.PLATFORM_API_KEY,
       kv_rate_limiter: !!c.env.RATE_LIMITER_KV ? 'kv-enforced' : 'in-memory-partial',
@@ -291,6 +307,9 @@ app.get('/status', async (c) => {
         workflows: 'active',       // P9 — /workflows
         health_dashboard: 'active',// P9 — /health-dashboard
         portal: 'active',          // P9 — /portal/:slug
+        api_v2: 'active',          // P10 — /api/v2
+        policies: 'active',        // P10 — /policies
+        alert_rules: 'active',     // P10 — /alert-rules
       },
       counts: {
         sessions: sessions.length,
@@ -305,7 +324,7 @@ app.get('/status', async (c) => {
     return c.json({
       status: 'degraded',
       platform: 'Sovereign OS Platform',
-      version: '0.7.0-P7',
+      version: '1.0.0-P10',
       error: 'Could not read platform state',
       persistence: 'unknown',
       timestamp: new Date().toISOString(),

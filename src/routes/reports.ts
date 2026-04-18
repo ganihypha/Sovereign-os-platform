@@ -1,12 +1,17 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — CROSS-LANE REPORTS (P7 UPGRADE)
+// SOVEREIGN OS PLATFORM — CROSS-LANE REPORTS (P10 UPGRADE)
 // P4: Real D1-aggregated metrics. No fake numbers.
 // P6: Added Chart.js visual observability charts.
 // P7: Metrics snapshot time-series (metrics_snapshots table).
 //     Timeline chart upgraded to use real snapshots.
 //     Auto-triggers daily snapshot on /reports load.
+// P10: Downloadable CSV/JSON governance reports (6 report types).
+//      Report templates, filters (date range, tenant, status).
+//      Report job history tracking via report_jobs table.
 // All metrics computed from actual D1 queries.
-// /reports — visual dashboard with charts
+// /reports — visual dashboard with charts + P10 download panel
+// /reports/download — POST: generate + download report
+// /reports/jobs — GET: report job history
 // /api/reports — JSON metrics endpoint
 // ============================================================
 
@@ -15,6 +20,7 @@ import { layout } from '../layout'
 import { createRepo } from '../lib/repo'
 import type { Env } from '../index'
 import { takeMetricsSnapshot, getMetricsHistory } from '../lib/metricsService'
+import { generateReport, getReportJobs, REPORT_TYPES, type ReportFormat, type ReportType, type ReportFilters } from '../lib/reportingService'
 
 function metricCard(label: string, value: number, sub: string, color: string): string {
   return `
@@ -255,7 +261,83 @@ export function createReportsRoute() {
       Use <a href="/api/reports" style="color:var(--accent)">/api/reports</a> for programmatic access.
       <span style="color:#22c55e;margin-left:8px">● P6 Chart.js observability layer active.</span>
       <span style="color:#a855f7;margin-left:8px">● P7 metrics_snapshots time-series active (${snapshotHistory.length} snapshots).</span>
+      <span style="color:#f97316;margin-left:8px">● P10 Governance Report Downloads active.</span>
     </div>
+
+    <!-- P10: GOVERNANCE REPORT DOWNLOAD PANEL -->
+    <div style="margin-top:24px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:24px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div>
+          <h2 style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:4px">Governance Report Downloads</h2>
+          <div style="font-size:11px;color:var(--text3)">P10 — Export governance data as CSV or JSON · All data from D1</div>
+        </div>
+        <a href="/reports/jobs" style="font-size:11px;color:var(--accent);text-decoration:none;border:1px solid rgba(79,142,247,0.3);padding:6px 12px;border-radius:6px">View Report History →</a>
+      </div>
+
+      <form action="/reports/download" method="POST" id="report-download-form">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:16px">
+          <div>
+            <label style="display:block;font-size:11px;color:var(--text3);margin-bottom:6px">Report Type</label>
+            <select name="report_type" id="reportType" style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:12px">
+              ${REPORT_TYPES.map(r => `<option value="${r.type}">${r.icon} ${r.label}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label style="display:block;font-size:11px;color:var(--text3);margin-bottom:6px">Format</label>
+            <select name="format" style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:12px">
+              <option value="csv">CSV (Excel-compatible)</option>
+              <option value="json">JSON (API-compatible)</option>
+            </select>
+          </div>
+          <div>
+            <label style="display:block;font-size:11px;color:var(--text3);margin-bottom:6px">Status Filter (optional)</label>
+            <select name="status" style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:12px">
+              <option value="">All Statuses</option>
+              <option value="pending">Pending</option>
+              <option value="active">Active</option>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
+              <option value="completed">Completed</option>
+              <option value="failed">Failed</option>
+            </select>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:16px">
+          <div>
+            <label style="display:block;font-size:11px;color:var(--text3);margin-bottom:6px">Date From (optional)</label>
+            <input type="date" name="date_from" style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:12px;box-sizing:border-box">
+          </div>
+          <div>
+            <label style="display:block;font-size:11px;color:var(--text3);margin-bottom:6px">Date To (optional)</label>
+            <input type="date" name="date_to" style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:12px;box-sizing:border-box">
+          </div>
+          <div>
+            <label style="display:block;font-size:11px;color:var(--text3);margin-bottom:6px">Max Rows</label>
+            <select name="limit" style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:12px">
+              <option value="100">100 rows</option>
+              <option value="500" selected>500 rows</option>
+              <option value="1000">1000 rows</option>
+            </select>
+          </div>
+        </div>
+        <div style="display:flex;gap:12px;align-items:center">
+          <button type="submit" style="background:#f97316;color:#fff;border:none;border-radius:6px;padding:10px 24px;font-size:13px;font-weight:600;cursor:pointer">
+            ↓ Generate &amp; Download Report
+          </button>
+          <span id="reportTypeDesc" style="font-size:11px;color:var(--text3)">Select a report type to see description.</span>
+        </div>
+      </form>
+    </div>
+
+    <script>
+    (function(){
+      const descs = ${JSON.stringify(REPORT_TYPES.reduce((acc, r) => { (acc as Record<string,string>)[r.type] = r.description; return acc }, {} as Record<string,string>))};
+      const sel = document.getElementById('reportType');
+      const desc = document.getElementById('reportTypeDesc');
+      function updateDesc() { if(sel && desc) desc.textContent = descs[sel.value] || ''; }
+      if(sel) { sel.addEventListener('change', updateDesc); updateDesc(); }
+    })();
+    </script>
 
     <!-- P6 Chart.js Initialization Scripts -->
     <script>
@@ -377,6 +459,124 @@ export function createReportsRoute() {
     </script>`
 
     return c.html(layout('Reports', content, '/reports'))
+  })
+
+  // ============================================================
+  // P10: POST /reports/download — generate + stream CSV or JSON
+  // ============================================================
+  route.post('/download', async (c) => {
+    if (!c.env.DB) return c.text('DB not configured', 503)
+    const body = await c.req.parseBody()
+    const reportType = (body['report_type'] as ReportType) || 'platform_summary'
+    const format = (body['format'] as ReportFormat) || 'json'
+    const filters: ReportFilters = {
+      date_from: body['date_from'] as string || undefined,
+      date_to: body['date_to'] as string || undefined,
+      status: body['status'] as string || undefined,
+      limit: parseInt(body['limit'] as string || '500', 10),
+    }
+
+    try {
+      const result = await generateReport(c.env.DB, reportType, format, filters, 'tenant-default', 'ui-download')
+
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-')
+      const filename = `sovereign-os-${reportType}-${timestamp}.${format}`
+
+      if (format === 'csv') {
+        return new Response(result.csv || '', {
+          headers: {
+            'Content-Type': 'text/csv; charset=utf-8',
+            'Content-Disposition': `attachment; filename="${filename}"`,
+            'X-Report-Rows': String(result.row_count),
+            'X-Report-Type': reportType,
+          }
+        })
+      } else {
+        const jsonOutput = JSON.stringify({
+          meta: {
+            report_type: result.report_type,
+            generated_at: result.generated_at,
+            tenant_id: result.tenant_id,
+            filters: result.filters,
+            row_count: result.row_count,
+            platform: 'Sovereign OS Platform',
+            version: '1.0.0-P10',
+          },
+          data: result.data
+        }, null, 2)
+        return new Response(jsonOutput, {
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Content-Disposition': `attachment; filename="${filename}"`,
+            'X-Report-Rows': String(result.row_count),
+          }
+        })
+      }
+    } catch (err) {
+      return c.html(layout('Report Error', `
+        <div style="padding:24px;color:#ef4444;background:var(--bg2);border-radius:8px;border:1px solid rgba(239,68,68,0.3)">
+          <h2 style="font-size:16px;font-weight:700;margin-bottom:8px">Report Generation Failed</h2>
+          <p style="font-size:13px;color:var(--text2)">${String(err)}</p>
+          <a href="/reports" style="display:inline-block;margin-top:12px;color:var(--accent);font-size:12px">← Back to Reports</a>
+        </div>
+      `, '/reports'), 500)
+    }
+  })
+
+  // ============================================================
+  // P10: GET /reports/jobs — report job history
+  // ============================================================
+  route.get('/jobs', async (c) => {
+    if (!c.env.DB) {
+      return c.html(layout('Report History', `<div style="padding:24px;color:var(--text2)">DB not configured</div>`, '/reports'))
+    }
+    const jobs = await getReportJobs(c.env.DB, undefined, 50)
+
+    const rows = jobs.map(j => `
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:10px 12px;font-size:12px;font-family:monospace;color:var(--text3)">${j.id}</td>
+        <td style="padding:10px 12px;font-size:12px;color:var(--text)">${j.report_type.replace(/_/g, ' ')}</td>
+        <td style="padding:10px 12px;font-size:12px">
+          <span style="padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;
+            background:${j.format === 'csv' ? 'rgba(34,197,94,0.1)' : 'rgba(79,142,247,0.1)'};
+            color:${j.format === 'csv' ? '#22c55e' : '#4f8ef7'};
+            border:1px solid ${j.format === 'csv' ? 'rgba(34,197,94,0.3)' : 'rgba(79,142,247,0.3)'}">
+            ${j.format.toUpperCase()}
+          </span>
+        </td>
+        <td style="padding:10px 12px;font-size:12px;color:var(--text2)">${j.row_count}</td>
+        <td style="padding:10px 12px;font-size:12px;color:var(--text3)">${j.created_by}</td>
+        <td style="padding:10px 12px;font-size:11px;color:var(--text3)">${j.created_at ? new Date(j.created_at).toLocaleString() : ''}</td>
+      </tr>
+    `).join('')
+
+    const content = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+        <div>
+          <h1 style="font-size:20px;font-weight:700;color:var(--text);margin-bottom:4px">Report Job History</h1>
+          <div style="font-size:12px;color:var(--text2)">P10 — Recent report generation log · ${jobs.length} records</div>
+        </div>
+        <a href="/reports" style="background:var(--bg2);color:var(--text2);border:1px solid var(--border);border-radius:6px;padding:8px 16px;font-size:12px;font-weight:600;text-decoration:none">← Back to Reports</a>
+      </div>
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden">
+        <table style="width:100%;border-collapse:collapse">
+          <thead>
+            <tr style="background:var(--bg3)">
+              <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--text3);font-weight:600">Job ID</th>
+              <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--text3);font-weight:600">Report Type</th>
+              <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--text3);font-weight:600">Format</th>
+              <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--text3);font-weight:600">Rows</th>
+              <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--text3);font-weight:600">Created By</th>
+              <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--text3);font-weight:600">Generated At</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows || '<tr><td colspan="6" style="padding:24px;text-align:center;color:var(--text3);font-size:12px">No report jobs yet — generate a report above.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    `
+    return c.html(layout('Report History', content, '/reports'))
   })
 
   return route
