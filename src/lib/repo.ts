@@ -31,7 +31,9 @@ import type {
   MetricsSnapshot,
   // P7 types
   AlertDelivery, AlertDeliveryStatus,
-  TenantBranding, SsoConfig, SsoProvider
+  TenantBranding, SsoConfig, SsoProvider,
+  // P8 types
+  TenantFederation, FederatedIntent, MarketplaceConnector, AuditLogV2
 } from '../types'
 
 // ---- Helpers ----
@@ -75,6 +77,11 @@ const mem = {
   alertDeliveries: [] as AlertDelivery[],
   tenantBrandings: [] as TenantBranding[],
   ssoConfigs: [] as SsoConfig[],
+  // P8 additions
+  tenantFederations: [] as TenantFederation[],
+  federatedIntents: [] as FederatedIntent[],
+  marketplaceConnectors: [] as MarketplaceConnector[],
+  auditLogV2: [] as AuditLogV2[],
   _seeded: false
 }
 

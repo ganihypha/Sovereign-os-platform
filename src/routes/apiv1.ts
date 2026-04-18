@@ -1,11 +1,13 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — PUBLIC API GATEWAY v1 (P7 UPGRADE)
+// SOVEREIGN OS PLATFORM — PUBLIC API GATEWAY v1 (P8 UPGRADE)
 // External API gateway with KV-backed distributed rate limiting.
 // Auth: Bearer token (public API key — separate from internal role keys)
 // Security: Never expose governance internals, secrets, or role details
 // Rate limiting: KV-backed distributed (P6 upgrade from in-memory PARTIAL)
 // P7: /api/v1/metrics-history — time-series from metrics_snapshots
 //     /api/v1/metrics-snapshot — trigger manual snapshot write
+// P8: /api/v1/anomaly-detect — ML/AI anomaly detection on metrics
+//     /api/v1/audit-events — audit log v2 (sanitized, read-only)
 // ============================================================
 
 import { Hono } from 'hono'
@@ -13,6 +15,8 @@ import type { Env } from '../index'
 import { createRepo } from '../lib/repo'
 import { checkRateLimit, rateLimitHeaders } from '../lib/rateLimiter'
 import { takeMetricsSnapshot, getMetricsHistory } from '../lib/metricsService'
+import { runAnomalyDetection } from '../lib/anomalyService'
+import { getAuditLogV2 } from '../lib/auditService'
 
 // ---- Hash helper (Web Crypto) ----
 async function sha256(data: string): Promise<string> {
@@ -40,8 +44,8 @@ export function createApiV1Route() {
     return c.json({
       status: 'ok',
       platform: 'Sovereign OS Platform',
-      version: '0.7.0-P7',
-      phase: 'P7 — Enterprise Governance Expansion',
+      version: '0.8.0-P8',
+      phase: 'P8 — Federated Governance & Advanced Platform Capabilities',
       api_version: 'v1',
       timestamp: new Date().toISOString(),
     })
@@ -234,6 +238,79 @@ export function createApiV1Route() {
       snapshot_id: result.id,
       timestamp: new Date().toISOString(),
     }, result.ok ? 200 : 500, rateLimitHeaders(rateResult))
+  })
+
+  // POST /api/v1/anomaly-detect — ML/AI anomaly detection on metrics (P8)
+  app.post('/anomaly-detect', requirePublicKey, async (c) => {
+    const rateResult = (c as unknown as Record<string, unknown>)['rateLimitResult'] as ReturnType<typeof checkRateLimit>
+    const apiKey = (c as unknown as Record<string, unknown>)['publicApiKey'] as { role_scope: string }
+
+    if (apiKey.role_scope !== 'readwrite') {
+      return c.json({ error: 'readwrite scope required for anomaly detection' }, 403, rateLimitHeaders(rateResult))
+    }
+
+    const body = await c.req.json().catch(() => ({})) as {
+      tenant_id?: string
+      threshold?: number
+      write_alerts?: boolean
+    }
+
+    const results = await runAnomalyDetection(c.env.DB, {
+      tenant_id: body.tenant_id ?? 'default',
+      threshold: body.threshold,
+      openai_api_key: c.env.OPENAI_API_KEY,
+      write_alerts: body.write_alerts ?? true,
+    })
+
+    const anomalies = results.filter(r => r.is_anomaly)
+
+    return c.json({
+      ok: true,
+      tenant_id: body.tenant_id ?? 'default',
+      total_metrics_checked: results.length,
+      anomalies_detected: anomalies.length,
+      results,
+      ai_note: results.some(r => r.confidence === 'ai-assisted')
+        ? 'ai-generated — requires human confirmation before action'
+        : 'statistical-only',
+      timestamp: new Date().toISOString(),
+    }, 200, rateLimitHeaders(rateResult))
+  })
+
+  // GET /api/v1/audit-events — Sanitized audit log v2 (P8)
+  app.get('/audit-events', requirePublicKey, async (c) => {
+    const rateResult = (c as unknown as Record<string, unknown>)['rateLimitResult'] as ReturnType<typeof checkRateLimit>
+    const apiKey = (c as unknown as Record<string, unknown>)['publicApiKey'] as { role_scope: string }
+
+    if (apiKey.role_scope !== 'readwrite') {
+      return c.json({ error: 'readwrite scope required for audit access' }, 403, rateLimitHeaders(rateResult))
+    }
+
+    const tenantId = c.req.query('tenant_id') || 'default'
+    const eventType = c.req.query('event_type') || undefined
+    const limit = Math.min(parseInt(c.req.query('limit') ?? '20'), 50)
+
+    const events = await getAuditLogV2(c.env.DB, { tenant_id: tenantId, event_type: eventType, limit })
+
+    // Sanitize: return public-safe fields only
+    const sanitized = events.map(e => ({
+      id: e.id,
+      event_type: e.event_type,
+      object_type: e.object_type,
+      object_id: e.object_id,
+      actor: e.actor,
+      tenant_id: e.tenant_id,
+      event_hash: e.event_hash,
+      surface: e.surface,
+      created_at: e.created_at,
+    }))
+
+    return c.json({
+      events: sanitized,
+      count: sanitized.length,
+      tenant_id: tenantId,
+      timestamp: new Date().toISOString(),
+    }, 200, rateLimitHeaders(rateResult))
   })
 
   return app

@@ -1,6 +1,6 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — MAIN ENTRY (P7 — ENTERPRISE GOVERNANCE EXPANSION)
-// Version: 0.7.0-P7
+// SOVEREIGN OS PLATFORM — MAIN ENTRY (P8 — FEDERATED GOVERNANCE & ADVANCED PLATFORM CAPABILITIES)
+// Version: 0.8.0-P8
 // Platform: Cloudflare Pages + Workers
 // Hono Framework — Edge-first
 // ============================================================
@@ -46,6 +46,11 @@ import { createRolesRoute } from './routes/roles'
 import { createSsoRoute } from './routes/sso'
 import { createBrandingRoute } from './routes/branding'
 
+// Route imports — P8 new surfaces
+import { createFederationRoute } from './routes/federation'
+import { createMarketplaceRoute } from './routes/marketplace'
+import { createAuditRoute } from './routes/audit'
+
 export type Env = {
   DB?: D1Database
   RATE_LIMITER_KV?: KVNamespace   // P6: KV-backed distributed rate limiter (optional — falls back to in-memory)
@@ -55,6 +60,7 @@ export type Env = {
   SENDGRID_API_KEY?: string       // P7: optional — email delivery fallback
   AUTH0_CLIENT_SECRET?: string    // P7: optional — SSO Auth0 (never logged/returned)
   CLERK_SECRET_KEY?: string       // P7: optional — SSO Clerk (never logged/returned)
+  // P8: no new required secrets. OPENAI_API_KEY already handles anomaly detection.
 }
 
 const app = new Hono<{ Bindings: Env }>()
@@ -135,6 +141,15 @@ app.route('/auth/sso', createSsoRoute())
 // P7: Tenant White-Label Branding
 app.route('/branding', createBrandingRoute())
 
+// P8: Federation Registry (cross-tenant governance)
+app.route('/federation', createFederationRoute())
+
+// P8: Connector Marketplace (governed publishing)
+app.route('/marketplace', createMarketplaceRoute())
+
+// P8: Immutable Audit Trail with SHA-256 event hashing
+app.route('/audit', createAuditRoute())
+
 // P6: Tenant namespace path routing — /t/:slug/*
 // P7: Injects tenant branding CSS into routing context
 app.use('/t/:slug/*', async (c, next) => {
@@ -190,13 +205,14 @@ app.get('/health', (c) => {
   return c.json({
     status: 'ok',
     platform: 'Sovereign OS Platform',
-    version: '0.7.0-P7',
-    phase: 'P7 — Enterprise Governance Expansion',
+    version: '0.8.0-P8',
+    phase: 'P8 — Federated Governance & Advanced Platform Capabilities',
     persistence: repo.isPersistent ? 'd1' : 'in-memory',
     auth_configured: !!c.env.PLATFORM_API_KEY,
     kv_rate_limiter: !!c.env.RATE_LIMITER_KV ? 'kv-enforced' : 'in-memory-partial',
     email_delivery: !!(c.env.RESEND_API_KEY || c.env.SENDGRID_API_KEY) ? 'configured' : 'not-configured',
     sso: !!(c.env.AUTH0_CLIENT_SECRET || c.env.CLERK_SECRET_KEY) ? 'configured' : 'not-configured',
+    ai_assist: !!c.env.OPENAI_API_KEY ? 'configured' : 'not-configured',
     timestamp: new Date().toISOString(),
   })
 })
@@ -214,13 +230,14 @@ app.get('/status', async (c) => {
     return c.json({
       status: 'operational',
       platform: 'Sovereign OS Platform',
-      version: '0.7.0-P7',
-      phase: 'P7 — Enterprise Governance Expansion',
+      version: '0.8.0-P8',
+      phase: 'P8 — Federated Governance & Advanced Platform Capabilities',
       persistence: repo.isPersistent ? 'd1-persistent' : 'in-memory-ephemeral',
       auth_configured: !!c.env.PLATFORM_API_KEY,
       kv_rate_limiter: !!c.env.RATE_LIMITER_KV ? 'kv-enforced' : 'in-memory-partial',
       email_delivery: !!(c.env.RESEND_API_KEY || c.env.SENDGRID_API_KEY) ? 'configured' : 'not-configured',
       sso: !!(c.env.AUTH0_CLIENT_SECRET || c.env.CLERK_SECRET_KEY) ? 'configured' : 'not-configured',
+      ai_assist: !!c.env.OPENAI_API_KEY ? 'configured' : 'not-configured',
       surfaces: {
         dashboard: 'active',
         intent: 'active',
@@ -248,6 +265,9 @@ app.get('/status', async (c) => {
         tenant_routing: 'active',  // P6 — /t/:slug/* path routing
         sso: 'active',             // P7 — /auth/sso
         branding: 'active',        // P7 — /branding
+        federation: 'active',      // P8 — /federation
+        marketplace: 'active',     // P8 — /marketplace
+        audit: 'active',           // P8 — /audit
       },
       counts: {
         sessions: sessions.length,

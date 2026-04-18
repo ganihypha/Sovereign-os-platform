@@ -1,6 +1,6 @@
 {
   "name": "sovereign-os-platform",
-  "version": "0.7.0-P7",
+  "version": "0.8.0-P8",
   "private": true,
   "scripts": {
     "dev": "vite",

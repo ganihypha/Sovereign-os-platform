@@ -477,3 +477,95 @@ export interface SsoConfig {
   created_at: string
   updated_at: string
 }
+
+// ============================================================
+// P8 TYPES — Federated Governance, Marketplace, Audit Hash Trail
+// ============================================================
+
+export type FederationStatus = 'pending' | 'approved' | 'rejected' | 'revoked'
+export type FederatedIntentStatus = 'pending' | 'approved' | 'rejected'
+export type MarketplaceStatus = 'submitted' | 'under_review' | 'listed' | 'rejected' | 'withdrawn'
+
+// ---- TenantFederation: who can share with whom ----
+export interface TenantFederation {
+  id: string
+  source_tenant_id: string
+  target_tenant_id: string
+  scope: string            // JSON array: ["intents","approvals",...]
+  status: FederationStatus
+  approved_by: string | null
+  approved_at: string | null
+  revoked_by: string | null
+  revoked_at: string | null
+  federation_notes: string
+  created_by: string
+  created_at: string
+}
+
+// ---- FederatedIntent: cross-tenant intent sharing log ----
+export interface FederatedIntent {
+  id: string
+  intent_id: string
+  source_tenant_id: string
+  target_tenant_id: string
+  federation_id: string
+  approval_status: FederatedIntentStatus
+  approved_by: string | null
+  approved_at: string | null
+  shared_scope: string
+  share_notes: string
+  shared_by: string
+  created_at: string
+}
+
+// ---- MarketplaceConnector: connector marketplace submission ----
+export interface MarketplaceConnector {
+  id: string
+  connector_id: string
+  submitted_by: string
+  submitted_tenant_id: string
+  listing_status: MarketplaceStatus
+  approval_tier: number
+  approved_by: string | null
+  approved_at: string | null
+  rejected_reason: string
+  listing_notes: string
+  listing_title: string
+  listing_description: string
+  listing_tags: string      // JSON array
+  version_tag: string
+  downloads: number
+  created_at: string
+  updated_at: string
+}
+
+// ---- AuditLogV2: Immutable audit trail with SHA-256 event hashing ----
+export interface AuditLogV2 {
+  id: string
+  event_type: string
+  object_type: string
+  object_id: string
+  actor: string
+  tenant_id: string
+  event_hash: string        // SHA-256(event_type+object_id+actor+created_at)
+  hash_algorithm: string
+  payload_summary: string
+  surface: string
+  verified: number          // 0 | 1
+  created_at: string
+}
+
+// ---- AnomalyDetection: ML/AI anomaly detection result ----
+export interface AnomalyDetectionResult {
+  tenant_id: string
+  metric: string
+  period: string
+  value: number
+  baseline: number
+  deviation_pct: number
+  is_anomaly: boolean
+  severity: 'low' | 'medium' | 'high'
+  ai_summary: string        // always tagged 'ai-generated'
+  confidence: string
+  detected_at: string
+}
