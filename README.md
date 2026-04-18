@@ -21,7 +21,7 @@
 | **GitHub** | https://github.com/ganihypha/Sovereign-os-platform | ✅ LIVE |
 | **D1 Database** | sovereign-os-production (f6067325-9ea4-44bc-a5fd-e3d19367e657) | ✅ LIVE |
 | **/health** | https://sovereign-os-platform.pages.dev/health | `version: 0.5.0-P5` |
-| **/status** | https://sovereign-os-platform.pages.dev/status | `22 surfaces active` |
+| **/status** | https://sovereign-os-platform.pages.dev/status | `23 surfaces active` |
 | **API v1 Health** | https://sovereign-os-platform.pages.dev/api/v1/health | ✅ LIVE |
 | **API v1 Docs** | https://sovereign-os-platform.pages.dev/api/v1/docs | ✅ LIVE |
 
@@ -70,7 +70,7 @@
 | Public API gateway (/api/v1/*) | ✅ LIVE-VERIFIED | health+docs: 200 OK. Authenticated: 401 without key (correct). Rate limit headers. |
 | Rate limiting | ⚠️ PARTIAL | In-memory (resets on deploy). X-RateLimit headers returned. KV-backed → P6. |
 | Tenant path routing /t/:slug/* | ⏳ PENDING | Header-based (X-Tenant-Slug) works. Path-based → P6. |
-| triggerConnectorWebhooks() call sites | ⚠️ PARTIAL | Function implemented. Not wired at call sites → P6. |
+| triggerConnectorWebhooks() call sites | ✅ WIRED | approval.{action} and execution.{blocked/done} events now fire webhooks. Fire-and-forget, never blocks main flow. |
 | P0–P4 regression | ✅ ZERO REGRESSION | All 18 P0–P4 surfaces: 200 OK in production. |
 | D1 migration 0006 | ✅ LIVE-VERIFIED | Applied to production. 5 new tables + 4 extensions. |
 | GitHub push | ✅ LIVE-VERIFIED | Commit 116dbc8 on main. |
@@ -162,10 +162,9 @@ curl http://localhost:3000/tenants
 **P6 Priority List:**
 1. KV-backed distributed rate limiting (upgrade rateLimiter.ts)
 2. Tenant namespace path routing (`/t/:slug/*`)
-3. `triggerConnectorWebhooks()` call site wiring at governance events
-4. Observability charts in /reports (Chart.js from metrics_snapshots)
-5. SSO/OAuth2 provider integration (if time allows)
-6. Email delivery from alerts (if time allows)
+3. Observability charts in /reports (Chart.js from metrics_snapshots)
+4. SSO/OAuth2 provider integration (if time allows)
+5. Email delivery from alerts (if time allows)
 
 **Explicitly Deferred to P7:**
 - White-label branding per tenant

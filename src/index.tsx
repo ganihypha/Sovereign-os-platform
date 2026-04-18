@@ -39,6 +39,9 @@ import { createAiAssistRoute } from './routes/aiassist'
 import { createApiKeysRoute } from './routes/apikeys'
 import { createApiV1Route } from './routes/apiv1'
 
+// Route import — P3 Roles Registry
+import { createRolesRoute } from './routes/roles'
+
 export type Env = {
   DB?: D1Database
   PLATFORM_API_KEY?: string
@@ -82,6 +85,9 @@ app.route('/continuity', createContinuityRoute())
 // P3: Execution Board + Connector Hub
 app.route('/execution', createExecutionRoute())
 app.route('/connectors', createConnectorsRoute())
+
+// P3: Role Registry
+app.route('/roles', createRolesRoute())
 
 // P4: Role Workspaces
 app.route('/workspace', createWorkspaceRoute())
@@ -173,6 +179,7 @@ app.get('/status', async (c) => {
         continuity: 'active',
         execution: 'active',    // P3
         connectors: 'active',  // P3
+        roles: 'active',       // P3
         workspace: 'active',   // P4
         alerts: 'active',      // P4
         canon: 'active',       // P4

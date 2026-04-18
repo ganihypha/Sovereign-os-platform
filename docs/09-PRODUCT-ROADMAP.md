@@ -16,7 +16,7 @@ what the sequencing rules are, and what is explicitly blocked from P6.
 **Live Phase:** P5 LIVE-VERIFIED
 **Database:** Cloudflare D1 — sovereign-os-production (f6067325-9ea4-44bc-a5fd-e3d19367e657)
 **Migrations Applied:** 0001 → 0006
-**Active Surfaces:** 22 total (P0 through P5)
+**Active Surfaces:** 23 total (P0 through P5)
 
 **Current Capabilities (P5 LIVE-VERIFIED):**
 - D1-backed persistence (all data persists)

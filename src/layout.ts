@@ -15,6 +15,7 @@ export function layout(title: string, content: string, activePage: string = '', 
     { path: '/continuity', label: 'Continuity', icon: '↻' },  // P2
     { path: '/execution', label: 'Execution', icon: '▶' },    // P3
     { path: '/connectors', label: 'Connectors', icon: '⊞' }, // P3
+    { path: '/roles', label: 'Roles', icon: '◈' },           // P3
   ]
   const navP4 = [
     { path: '/workspace', label: 'Workspace', icon: '◈', badge: '' },    // P4

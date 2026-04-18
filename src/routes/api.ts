@@ -1,9 +1,11 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — API ROUTES (P1)
+// SOVEREIGN OS PLATFORM — API ROUTES (P1-P5)
 // All mutations require auth (applied via middleware in index.tsx)
+// P5: Governance event webhooks wired at approval + execution call sites
 // ============================================================
 import { Hono } from 'hono'
 import { createRepo } from '../lib/repo'
+import { triggerConnectorWebhooks } from '../lib/webhookDelivery'
 import type { Env } from '../index'
 
 export function createApiRoute() {
@@ -103,6 +105,13 @@ export function createApiRoute() {
       const ip = c.req.header('cf-connecting-ip') ?? c.req.header('x-forwarded-for') ?? ''
       await repo.logAudit(approved_by, `approval.${action}`, 'approval_request', id, `reason: ${reason}`, ip)
     }
+    // P5: Trigger governance webhooks (fire-and-forget — must never block main flow)
+    triggerConnectorWebhooks(repo, `approval.${action}`, 'default', {
+      approval_id: id,
+      action,
+      approved_by,
+      reason: reason.slice(0, 100),
+    }).catch(() => { /* webhook failure must not affect approval flow */ })
     return c.redirect('/approvals')
   })
 
@@ -369,6 +378,14 @@ export function createApiRoute() {
     if (repo.isPersistent) {
       const ip = c.req.header('cf-connecting-ip') ?? ''
       await repo.logAudit('Operator', `execution.status.${status}`, 'execution_entry', id, String(body.blocked_reason || ''), ip)
+    }
+    // P5: Trigger governance webhooks for significant status changes (fire-and-forget)
+    if (status === 'blocked' || status === 'done') {
+      triggerConnectorWebhooks(repo, `execution.${status}`, 'default', {
+        execution_id: id,
+        status,
+        blocked_reason: status === 'blocked' ? String(body.blocked_reason || '').slice(0, 100) : undefined,
+      }).catch(() => { /* webhook failure must not affect execution flow */ })
     }
     return c.json({ ok: true, id, status })
   })
