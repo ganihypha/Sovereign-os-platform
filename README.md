@@ -14,15 +14,15 @@ requirements, and a stable canon layer that survives sessions.
 
 | Item | Value |
 |------|-------|
-| **Version** | `0.9.0-P9` |
-| **Phase** | P9 — Real-time Governance & Advanced Automation |
+| **Version** | `1.0.0-P10` |
+| **Phase** | P10 — Enhanced Governance, API v2, ABAC, Alert Rules |
 | **Status** | ✅ LIVE-VERIFIED |
 | **Production** | https://sovereign-os-platform.pages.dev |
 | **GitHub** | https://github.com/ganihypha/Sovereign-os-platform |
-| **Latest Commit** | `b8144c3` |
+| **Latest Commit** | `14ca9cf` |
 | **D1 Database** | `sovereign-os-production` (f6067325-9ea4-44bc-a5fd-e3d19367e657) |
-| **Migrations Applied** | 0001 → 0009 |
-| **Active Surfaces** | 33 total |
+| **Migrations Applied** | 0001 → 0010 |
+| **Active Surfaces** | 37 total |
 | **KV Namespace** | RATE_LIMITER_KV (b36f941ace3445d68d335d8cebc0803a) |
 
 ---
@@ -45,10 +45,14 @@ requirements, and a stable canon layer that survives sessions.
 | `https://sovereign-os-platform.pages.dev/workflows` | Workflow Automation (P9) |
 | `https://sovereign-os-platform.pages.dev/health-dashboard` | Platform Health Dashboard (P9) |
 | `https://sovereign-os-platform.pages.dev/portal/default` | Tenant Self-Service Portal (P9) |
+| `https://sovereign-os-platform.pages.dev/reports` | Enhanced Governance Reports (P10) |
+| `https://sovereign-os-platform.pages.dev/api/v2/docs` | API v2 Documentation (P10) |
+| `https://sovereign-os-platform.pages.dev/policies` | ABAC Policy Editor (P10) |
+| `https://sovereign-os-platform.pages.dev/alert-rules` | Alert Rules Engine (P10) |
 
 ---
 
-## Active Surfaces (33 total — all LIVE-VERIFIED)
+## Active Surfaces (37 total — all LIVE-VERIFIED)
 
 ### P0 Core (8 surfaces)
 | Surface | Path | Role |
@@ -110,13 +114,60 @@ requirements, and a stable canon layer that survives sessions.
 | Connector Marketplace | `/marketplace` | Governed connector template publishing |
 | Immutable Audit Trail | `/audit` | SHA-256 event hashing + on-read verification |
 
-### P9 — NEW (4 surfaces)
+### P9 — (4 surfaces)
 | Surface | Path | Role |
 |---------|------|------|
 | Notifications | `/notifications` | SSE real-time stream + notification inbox (KV-backed) |
 | Workflows | `/workflows` | Workflow automation engine (event → condition → action) |
 | Health Dashboard | `/health-dashboard` | Unified platform health (33 surfaces, SLA, time-series) |
 | Tenant Portal | `/portal/:slug` | Tenant self-service (profile, connectors, federation, marketplace) |
+
+### P10 — NEW (4 surfaces)
+| Surface | Path | Role |
+|---------|------|------|
+| Enhanced Reports | `/reports` | CSV/JSON downloadable governance reports (6 types), report job history |
+| API v2 | `/api/v2` | Structured REST layer — 9 resource groups, cursor pagination, rate limiting |
+| ABAC Policies | `/policies` | Attribute-Based Access Control policy editor (subject/resource/action/effect) |
+| Alert Rules | `/alert-rules` | Alert rules engine — condition→threshold→action, live metrics display |
+
+---
+
+## P10 Feature Summary
+
+### 1. Enhanced Governance Reporting ✅ LIVE
+- 6 downloadable report types: approval_audit, federation_activity, marketplace_activity, anomaly_history, workflow_runs, platform_summary
+- Formats: CSV (Excel-compatible) and JSON (API-compatible)
+- Filters: date_from, date_to, status, limit (100/500/1000 rows)
+- Report job history tracked in D1 report_jobs table
+- POST /reports/download — streaming download
+- GET /reports/jobs — job history
+
+### 2. API v2 Structured REST Layer ✅ LIVE
+- Base: /api/v2 — versioned REST endpoints for all core resources
+- Resources: intents, approvals, workflows, notifications, health-snapshots, audit-events, metrics
+- Cursor-based pagination (max 100 per page)
+- Filtering: field-specific + full-text search (?q=)
+- Sorting: ?sort=field&dir=asc|desc
+- Rate limiting: 60 req/min via RATE_LIMITER_KV
+- CORS enabled for all API v2 routes
+- OpenAPI-style docs at /api/v2/docs
+
+### 3. ABAC Policy Engine ✅ LIVE
+- Policy model: subject_type × subject_value × resource_type × action × effect × priority
+- Wildcard (*) support for resource_type and action
+- DENY beats ALLOW at same priority; lowest number = highest precedence
+- 5 default policies: admin full, viewer read-only, viewer deny-delete, analyst reports, operator workflows
+- API: checkAccess(db, ctx) for programmatic enforcement
+- POST /policies/create, toggle, delete via UI
+
+### 4. Alert Rules Engine ✅ LIVE
+- Metrics monitored: pending_approvals, blocked_executions, unread_alerts, anomaly_score, workflow_failures, active_sessions, total_connectors, pending_connectors
+- Operators: gt, gte, lt, lte, eq, neq
+- Actions: create_notification, log_audit, send_email, trigger_webhook
+- Cooldown: configurable window prevents duplicate alerts
+- Live metric display: current value vs threshold shown in UI
+- 3 default rules: high pending approvals, blocked executions, unread alerts
+- Manual evaluation: POST /alert-rules/evaluate
 
 ---
 
