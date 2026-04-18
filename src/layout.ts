@@ -41,6 +41,12 @@ export function layout(title: string, content: string, activePage: string = '', 
     { path: '/marketplace', label: 'Marketplace', icon: '🛒', badge: 'P8' }, // P8 — connector marketplace
     { path: '/audit', label: 'Audit Trail', icon: '🔏', badge: 'P8' },      // P8 — immutable audit
   ]
+  const navP9 = [
+    { path: '/notifications', label: 'Notifications', icon: '🔔', badge: 'P9' }, // P9 — SSE notifications
+    { path: '/workflows', label: 'Workflows', icon: '⚡', badge: 'P9' },          // P9 — workflow automation
+    { path: '/health-dashboard', label: 'Health', icon: '🏥', badge: 'P9' },     // P9 — health dashboard
+    { path: '/portal', label: 'Portal', icon: '🏠', badge: 'P9' },               // P9 — tenant portal
+  ]
 
   const navItems = navP0P3.map(n => {
     const isActive = activePage === n.path
@@ -81,6 +87,14 @@ export function layout(title: string, content: string, activePage: string = '', 
   }).join('') + `<div class="nav-section-label">P8</div>` + navP8.map(n => {
     const isActive = activePage === n.path || activePage === n.label.toLowerCase()
     const badgeHtml = `<span style="background:#f59e0b;color:#000;border-radius:10px;padding:0 5px;font-size:9px;font-weight:700;margin-left:auto">${n.badge}</span>`
+    return `<a href="${n.path}" class="nav-item${isActive ? ' active' : ''}">
+      <span class="nav-icon">${n.icon}</span>
+      <span class="nav-label">${n.label}</span>
+      ${badgeHtml}
+    </a>`
+  }).join('') + `<div class="nav-section-label">P9</div>` + navP9.map(n => {
+    const isActive = activePage === n.path || activePage.startsWith(n.path)
+    const badgeHtml = `<span style="background:#06b6d4;color:#000;border-radius:10px;padding:0 5px;font-size:9px;font-weight:700;margin-left:auto">${n.badge}</span>`
     return `<a href="${n.path}" class="nav-item${isActive ? ' active' : ''}">
       <span class="nav-icon">${n.icon}</span>
       <span class="nav-label">${n.label}</span>

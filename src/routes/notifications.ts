@@ -1,0 +1,319 @@
+// ============================================================
+// SOVEREIGN OS PLATFORM — NOTIFICATIONS SURFACE (P9)
+// Real-time governance notifications via SSE + polling inbox
+//
+// GET /notifications           — Notification inbox view (HTML)
+// GET /notifications/stream    — SSE live stream endpoint
+// GET /notifications/poll      — Polling fallback (JSON)
+// POST /notifications/read/:id — Mark notification as read
+// POST /notifications/read-all — Mark all as read
+// GET /api/v1/notifications    — API: get notifications (auth required)
+//
+// AUTH: SSE/inbox visible to all; mutations require auth
+// KV: Latest event stored in RATE_LIMITER_KV for SSE
+// ============================================================
+
+import { Hono } from 'hono'
+import type { Env } from '../index'
+import { isAuthenticated } from '../lib/auth'
+import { layout } from '../layout'
+import {
+  getNotifications,
+  getUnreadCount,
+  markNotificationRead,
+  markAllRead,
+  getLatestFromKV
+} from '../lib/notificationService'
+
+export const notificationsRoute = new Hono<{ Bindings: Env }>()
+
+// GET /notifications — Notification inbox
+notificationsRoute.get('/', async (c) => {
+  const db = c.env.DB
+  const tenant_id = 'default'
+
+  let notifications = []
+  let unreadCount = 0
+  let error = ''
+
+  try {
+    notifications = await getNotifications(db, tenant_id, 50)
+    unreadCount = await getUnreadCount(db, tenant_id)
+  } catch (err: any) {
+    error = err.message || 'Failed to load notifications'
+  }
+
+  const notifRows = notifications.map((n: any) => {
+    const typeColors: Record<string, string> = {
+      approval_pending: '#f59e0b',
+      anomaly_detected: '#ef4444',
+      federation_request: '#06b6d4',
+      marketplace_submitted: '#a855f7',
+      workflow_triggered: '#22c55e',
+      system_alert: '#9aa3b2'
+    }
+    const color = typeColors[n.event_type] || '#4f8ef7'
+    const readStyle = n.read ? 'opacity:0.5' : ''
+    const readBadge = n.read
+      ? `<span style="color:var(--text3);font-size:11px">read</span>`
+      : `<span style="background:${color};color:#000;border-radius:10px;padding:0 6px;font-size:10px;font-weight:700">NEW</span>`
+
+    return `
+    <div class="notif-row${n.read ? ' read' : ''}" data-id="${n.id}" style="${readStyle}">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+        <span style="background:${color}22;color:${color};border-radius:6px;padding:2px 8px;font-size:11px;font-weight:600">${n.event_type}</span>
+        ${readBadge}
+        <span style="color:var(--text3);font-size:11px;margin-left:auto">${n.created_at}</span>
+      </div>
+      <div style="font-weight:600;color:var(--text);margin-bottom:2px">${n.title}</div>
+      <div style="color:var(--text2);font-size:13px">${n.message}</div>
+      <div style="display:flex;gap:8px;margin-top:6px;align-items:center">
+        <span style="color:var(--text3);font-size:11px">actor: ${n.actor}</span>
+        ${n.reference_type ? `<span style="color:var(--text3);font-size:11px">ref: ${n.reference_type}:${n.reference_id || ''}</span>` : ''}
+        ${!n.read ? `<button onclick="markRead('${n.id}')" style="margin-left:auto;background:var(--bg3);border:1px solid var(--border);color:var(--text2);border-radius:5px;padding:2px 10px;cursor:pointer;font-size:12px">Mark Read</button>` : ''}
+      </div>
+    </div>`
+  }).join('')
+
+  const eventTypeLegend = [
+    { type: 'approval_pending', color: '#f59e0b', label: 'Approval' },
+    { type: 'anomaly_detected', color: '#ef4444', label: 'Anomaly' },
+    { type: 'federation_request', color: '#06b6d4', label: 'Federation' },
+    { type: 'marketplace_submitted', color: '#a855f7', label: 'Marketplace' },
+    { type: 'workflow_triggered', color: '#22c55e', label: 'Workflow' },
+    { type: 'system_alert', color: '#9aa3b2', label: 'System' },
+  ].map(e => `<span style="background:${e.color}22;color:${e.color};border-radius:10px;padding:2px 8px;font-size:11px">${e.label}</span>`).join(' ')
+
+  const content = `
+  <div class="page-header">
+    <div>
+      <h1>🔔 Notifications</h1>
+      <p style="color:var(--text2)">Real-time governance notifications — P9 SSE Stream + Inbox</p>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center">
+      <span id="sse-status" style="font-size:12px;color:var(--text3)">⚪ Connecting...</span>
+      ${unreadCount > 0 ? `<span style="background:#ef4444;color:#fff;border-radius:10px;padding:2px 10px;font-size:12px;font-weight:700">${unreadCount} unread</span>` : ''}
+      <button onclick="markAllRead()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text2);border-radius:6px;padding:6px 14px;cursor:pointer;font-size:13px">Mark All Read</button>
+    </div>
+  </div>
+
+  ${error ? `<div style="background:#ef444422;border:1px solid #ef4444;border-radius:8px;padding:12px 16px;margin-bottom:16px;color:#ef4444">${error}</div>` : ''}
+
+  <!-- SSE live feed banner -->
+  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;gap:12px">
+    <span style="font-size:12px;color:var(--text2)">Live Feed:</span>
+    <div id="live-feed" style="flex:1;font-size:13px;color:var(--accent);font-family:'JetBrains Mono',monospace">Waiting for events...</div>
+    <div style="display:flex;gap:6px">${eventTypeLegend}</div>
+  </div>
+
+  <!-- Notifications list -->
+  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
+    <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
+      <span style="font-weight:600">Inbox</span>
+      <span style="color:var(--text3);font-size:12px">${notifications.length} notifications</span>
+      <div style="margin-left:auto;display:flex;gap:6px">
+        <button onclick="filterNotifs('all')" id="filter-all" class="filter-btn active-filter">All</button>
+        <button onclick="filterNotifs('unread')" id="filter-unread" class="filter-btn">Unread</button>
+      </div>
+    </div>
+    <div id="notif-list" style="max-height:600px;overflow-y:auto">
+      ${notifications.length === 0
+        ? `<div style="padding:40px;text-align:center;color:var(--text3)">No notifications yet. Events will appear here in real-time.</div>`
+        : notifRows}
+    </div>
+  </div>
+
+  <style>
+    .notif-row { padding:14px 18px; border-bottom:1px solid var(--border); transition:background 0.2s; }
+    .notif-row:hover { background:var(--bg3); }
+    .notif-row.read { background:transparent; }
+    .filter-btn { background:var(--bg3);border:1px solid var(--border);color:var(--text2);border-radius:5px;padding:4px 10px;cursor:pointer;font-size:12px; }
+    .active-filter { background:var(--accent);color:#fff;border-color:var(--accent); }
+  </style>
+
+  <script>
+    // SSE stream connection
+    let evtSource = null;
+    let pollInterval = null;
+
+    function connectSSE() {
+      if (typeof EventSource === 'undefined') {
+        startPolling();
+        return;
+      }
+      try {
+        evtSource = new EventSource('/notifications/stream');
+        document.getElementById('sse-status').textContent = '🟡 Connecting...';
+
+        evtSource.onopen = () => {
+          document.getElementById('sse-status').textContent = '🟢 Live (SSE)';
+          clearInterval(pollInterval);
+        };
+
+        evtSource.addEventListener('notification', (e) => {
+          try {
+            const data = JSON.parse(e.data);
+            showLiveFeed(data);
+          } catch(_) {}
+        });
+
+        evtSource.addEventListener('ping', () => {
+          document.getElementById('sse-status').textContent = '🟢 Live (SSE)';
+        });
+
+        evtSource.onerror = () => {
+          document.getElementById('sse-status').textContent = '🟡 Polling fallback';
+          evtSource && evtSource.close();
+          startPolling();
+        };
+      } catch(e) {
+        startPolling();
+      }
+    }
+
+    function startPolling() {
+      pollInterval = setInterval(async () => {
+        try {
+          const res = await fetch('/notifications/poll');
+          if (res.ok) {
+            const data = await res.json();
+            if (data.notification) showLiveFeed(data.notification);
+          }
+        } catch(_) {}
+      }, 10000);
+    }
+
+    function showLiveFeed(notif) {
+      const el = document.getElementById('live-feed');
+      if (el) {
+        el.textContent = '[' + new Date().toLocaleTimeString() + '] ' + notif.event_type + ' — ' + notif.title;
+        el.style.color = '#22c55e';
+        setTimeout(() => { if(el) el.style.color = 'var(--accent)'; }, 3000);
+      }
+    }
+
+    async function markRead(id) {
+      await fetch('/notifications/read/' + id, { method: 'POST' });
+      location.reload();
+    }
+
+    async function markAllRead() {
+      await fetch('/notifications/read-all', { method: 'POST' });
+      location.reload();
+    }
+
+    let currentFilter = 'all';
+    function filterNotifs(filter) {
+      currentFilter = filter;
+      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active-filter'));
+      document.getElementById('filter-' + filter).classList.add('active-filter');
+      document.querySelectorAll('.notif-row').forEach(row => {
+        if (filter === 'unread') {
+          row.style.display = row.classList.contains('read') ? 'none' : '';
+        } else {
+          row.style.display = '';
+        }
+      });
+    }
+
+    connectSSE();
+  </script>
+  `
+
+  return c.html(layout('Notifications', content, '/notifications'))
+})
+
+// GET /notifications/stream — SSE endpoint
+notificationsRoute.get('/stream', async (c) => {
+  const db = c.env.DB
+  const kv = c.env.RATE_LIMITER_KV
+  const tenant_id = 'default'
+
+  // Create SSE stream using TransformStream
+  const { readable, writable } = new TransformStream()
+  const writer = writable.getWriter()
+  const encoder = new TextEncoder()
+
+  const write = async (data: string) => {
+    try {
+      await writer.write(encoder.encode(data))
+    } catch (_) { }
+  }
+
+  // Send initial ping + recent notifications
+  ;(async () => {
+    try {
+      await write(`: ping\n\n`)
+      await write(`event: ping\ndata: ${JSON.stringify({ ts: Date.now() })}\n\n`)
+
+      // Send last 5 unread notifications on connect
+      const recent = await getNotifications(db, tenant_id, 5, true)
+      for (const n of recent) {
+        await write(`event: notification\ndata: ${JSON.stringify(n)}\n\n`)
+      }
+
+      // Keep-alive pings every 25s (CF Pages 30s limit)
+      let ticks = 0
+      const pingTimer = setInterval(async () => {
+        ticks++
+        try {
+          await write(`event: ping\ndata: ${JSON.stringify({ ts: Date.now(), tick: ticks })}\n\n`)
+
+          // Poll KV for latest notification
+          if (kv) {
+            const latest = await getLatestFromKV(kv, tenant_id)
+            if (latest) {
+              await write(`event: notification\ndata: ${JSON.stringify(latest)}\n\n`)
+            }
+          }
+        } catch (_) {
+          clearInterval(pingTimer)
+        }
+
+        if (ticks >= 10) { // Max 250s then close (CF Pages limit)
+          clearInterval(pingTimer)
+          try { await writer.close() } catch (_) { }
+        }
+      }, 25000)
+    } catch (_) {
+      try { await writer.close() } catch (_) { }
+    }
+  })()
+
+  return new Response(readable, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no'
+    }
+  })
+})
+
+// GET /notifications/poll — Polling fallback (returns latest from KV)
+notificationsRoute.get('/poll', async (c) => {
+  const kv = c.env.RATE_LIMITER_KV
+  const tenant_id = 'default'
+
+  let notification = null
+  try {
+    notification = await getLatestFromKV(kv, tenant_id)
+  } catch (_) { }
+
+  return c.json({ notification, ts: Date.now() })
+})
+
+// POST /notifications/read/:id — Mark as read
+notificationsRoute.post('/read/:id', async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  const changed = await markNotificationRead(db, id)
+  return c.json({ success: changed, id })
+})
+
+// POST /notifications/read-all — Mark all as read
+notificationsRoute.post('/read-all', async (c) => {
+  const db = c.env.DB
+  const count = await markAllRead(db, 'default')
+  return c.json({ success: true, marked: count })
+})

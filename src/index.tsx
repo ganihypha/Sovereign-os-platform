@@ -1,6 +1,6 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — MAIN ENTRY (P8 — FEDERATED GOVERNANCE & ADVANCED PLATFORM CAPABILITIES)
-// Version: 0.8.0-P8
+// SOVEREIGN OS PLATFORM — MAIN ENTRY (P9 — REAL-TIME GOVERNANCE & ADVANCED AUTOMATION)
+// Version: 0.9.0-P9
 // Platform: Cloudflare Pages + Workers
 // Hono Framework — Edge-first
 // ============================================================
@@ -51,6 +51,12 @@ import { createFederationRoute } from './routes/federation'
 import { createMarketplaceRoute } from './routes/marketplace'
 import { createAuditRoute } from './routes/audit'
 
+// Route imports — P9 new surfaces
+import { notificationsRoute } from './routes/notifications'
+import { workflowsRoute } from './routes/workflows'
+import { healthDashboardRoute } from './routes/healthDashboard'
+import { portalRoute } from './routes/portal'
+
 export type Env = {
   DB?: D1Database
   RATE_LIMITER_KV?: KVNamespace   // P6: KV-backed distributed rate limiter (optional — falls back to in-memory)
@@ -61,6 +67,7 @@ export type Env = {
   AUTH0_CLIENT_SECRET?: string    // P7: optional — SSO Auth0 (never logged/returned)
   CLERK_SECRET_KEY?: string       // P7: optional — SSO Clerk (never logged/returned)
   // P8: no new required secrets. OPENAI_API_KEY already handles anomaly detection.
+  // P9: no new required secrets. SSE, workflows, portal, health-dashboard use existing bindings.
 }
 
 const app = new Hono<{ Bindings: Env }>()
@@ -150,6 +157,18 @@ app.route('/marketplace', createMarketplaceRoute())
 // P8: Immutable Audit Trail with SHA-256 event hashing
 app.route('/audit', createAuditRoute())
 
+// P9: Real-time Notifications (SSE + polling fallback)
+app.route('/notifications', notificationsRoute)
+
+// P9: Advanced Workflow Automation (trigger chains)
+app.route('/workflows', workflowsRoute)
+
+// P9: Platform Health Dashboard (all 33 surfaces + SLA)
+app.route('/health-dashboard', healthDashboardRoute)
+
+// P9: Tenant Self-Service Portal
+app.route('/portal', portalRoute)
+
 // P6: Tenant namespace path routing — /t/:slug/*
 // P7: Injects tenant branding CSS into routing context
 app.use('/t/:slug/*', async (c, next) => {
@@ -205,8 +224,8 @@ app.get('/health', (c) => {
   return c.json({
     status: 'ok',
     platform: 'Sovereign OS Platform',
-    version: '0.8.0-P8',
-    phase: 'P8 — Federated Governance & Advanced Platform Capabilities',
+    version: '0.9.0-P9',
+    phase: 'P9 — Real-time Governance & Advanced Automation',
     persistence: repo.isPersistent ? 'd1' : 'in-memory',
     auth_configured: !!c.env.PLATFORM_API_KEY,
     kv_rate_limiter: !!c.env.RATE_LIMITER_KV ? 'kv-enforced' : 'in-memory-partial',
@@ -230,8 +249,8 @@ app.get('/status', async (c) => {
     return c.json({
       status: 'operational',
       platform: 'Sovereign OS Platform',
-      version: '0.8.0-P8',
-      phase: 'P8 — Federated Governance & Advanced Platform Capabilities',
+      version: '0.9.0-P9',
+      phase: 'P9 — Real-time Governance & Advanced Automation',
       persistence: repo.isPersistent ? 'd1-persistent' : 'in-memory-ephemeral',
       auth_configured: !!c.env.PLATFORM_API_KEY,
       kv_rate_limiter: !!c.env.RATE_LIMITER_KV ? 'kv-enforced' : 'in-memory-partial',
@@ -268,6 +287,10 @@ app.get('/status', async (c) => {
         federation: 'active',      // P8 — /federation
         marketplace: 'active',     // P8 — /marketplace
         audit: 'active',           // P8 — /audit
+        notifications: 'active',   // P9 — /notifications
+        workflows: 'active',       // P9 — /workflows
+        health_dashboard: 'active',// P9 — /health-dashboard
+        portal: 'active',          // P9 — /portal/:slug
       },
       counts: {
         sessions: sessions.length,
