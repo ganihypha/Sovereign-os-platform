@@ -1,6 +1,6 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — MAIN ENTRY (P11 — ABAC ENFORCEMENT, WORKFLOW V2, REMEDIATION, EVENT BUS)
-// Version: 1.1.0-P11
+// SOVEREIGN OS PLATFORM — MAIN ENTRY (P12 — ABAC MIDDLEWARE, SCHEDULED REPORTS, WEBHOOK QUEUE, EVENT BUS INTEGRATION, API KEY PERMISSIONS)
+// Version: 1.2.0-P12
 // Platform: Cloudflare Pages + Workers
 // Hono Framework — Edge-first
 // ============================================================
@@ -67,6 +67,9 @@ import { createRemediationRoute } from './routes/remediation'
 import { createEventsRoute } from './routes/events'
 import { createDocsRoute } from './routes/docs'
 
+// Route imports — P12 new surfaces
+import { createReportSubscriptionsRoute } from './routes/reportSubscriptions'
+
 export type Env = {
   DB?: D1Database
   RATE_LIMITER_KV?: KVNamespace   // P6: KV-backed distributed rate limiter (optional — falls back to in-memory)
@@ -80,6 +83,7 @@ export type Env = {
   // P9: no new required secrets. SSE, workflows, portal, health-dashboard use existing bindings.
   // P10: no new required secrets. ABAC, alert rules, API v2, reports use existing D1 + KV.
   // P11: no new required secrets. Remediation, events, docs use existing D1 + KV.
+  // P12: no new required secrets. ABAC middleware, report subscriptions, webhook queue, API key permissions use existing D1 + KV.
 }
 
 const app = new Hono<{ Bindings: Env }>()
@@ -200,6 +204,9 @@ app.route('/events', createEventsRoute())
 // P11: Developer Documentation & SDK Guide
 app.route('/docs', createDocsRoute())
 
+// P12: Report Subscriptions (scheduled snapshots)
+app.route('/reports/subscriptions', createReportSubscriptionsRoute())
+
 // P6: Tenant namespace path routing — /t/:slug/*
 // P7: Injects tenant branding CSS into routing context
 app.use('/t/:slug/*', async (c, next) => {
@@ -255,8 +262,8 @@ app.get('/health', (c) => {
   return c.json({
     status: 'ok',
     platform: 'Sovereign OS Platform',
-    version: '1.1.0-P11',
-    phase: 'P11 — ABAC Enforcement, Workflow v2, Remediation, Event Bus',
+    version: '1.2.0-P12',
+    phase: 'P12 — ABAC Middleware, Scheduled Reports, Webhook Queue, Event Bus Integration, API Key Permissions',
     persistence: repo.isPersistent ? 'd1' : 'in-memory',
     auth_configured: !!c.env.PLATFORM_API_KEY,
     kv_rate_limiter: !!c.env.RATE_LIMITER_KV ? 'kv-enforced' : 'in-memory-partial',
@@ -280,8 +287,8 @@ app.get('/status', async (c) => {
     return c.json({
       status: 'operational',
       platform: 'Sovereign OS Platform',
-      version: '1.1.0-P11',
-      phase: 'P11 — ABAC Enforcement, Workflow v2, Remediation, Event Bus',
+      version: '1.2.0-P12',
+      phase: 'P12 — ABAC Middleware, Scheduled Reports, Webhook Queue, Event Bus Integration, API Key Permissions',
       persistence: repo.isPersistent ? 'd1-persistent' : 'in-memory-ephemeral',
       auth_configured: !!c.env.PLATFORM_API_KEY,
       kv_rate_limiter: !!c.env.RATE_LIMITER_KV ? 'kv-enforced' : 'in-memory-partial',
@@ -329,6 +336,11 @@ app.get('/status', async (c) => {
         events: 'active',          // P11 — /events
         docs: 'active',            // P11 — /docs
         policies_simulate: 'active', // P11 — /policies/simulate
+        report_subscriptions: 'active', // P12 — /reports/subscriptions
+        abac_middleware: 'active',       // P12 — ABAC HTTP enforcement
+        webhook_queue: 'active',         // P12 — webhook delivery queue
+        api_key_permissions: 'active',   // P12 — API key scoped permissions
+        event_bus_integration: 'active', // P12 — event emission from surfaces
       },
       counts: {
         sessions: sessions.length,
@@ -343,7 +355,7 @@ app.get('/status', async (c) => {
     return c.json({
       status: 'degraded',
       platform: 'Sovereign OS Platform',
-      version: '1.1.0-P11',
+      version: '1.2.0-P12',
       error: 'Could not read platform state',
       persistence: 'unknown',
       timestamp: new Date().toISOString(),

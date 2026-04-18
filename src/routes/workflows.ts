@@ -32,6 +32,7 @@ import {
   retryWorkflowRun,
   WORKFLOW_TEMPLATES
 } from '../lib/workflowService'
+import { emitEvent } from '../lib/eventBusService'
 
 export const workflowsRoute = new Hono<{ Bindings: Env }>()
 
@@ -408,6 +409,20 @@ workflowsRoute.post('/:id/trigger', async (c) => {
   if (!wf || wf.status !== 'active') return c.redirect(`/workflows/${id}?error=not_active`)
 
   await executeWorkflow(db, kv, wf, 'manual-trigger', { source: 'manual', workflow_id: id })
+
+  // P12: Emit workflow.triggered event
+  if (db) {
+    emitEvent(db, {
+      event_type: 'workflow.triggered',
+      source_surface: 'workflows',
+      actor: 'operator',
+      resource_id: id,
+      resource_type: 'workflow',
+      payload: { workflow_name: wf.name, trigger: 'manual' },
+      severity: 'info'
+    }).catch(() => {})
+  }
+
   return c.redirect(`/workflows/${id}?triggered=1`)
 })
 

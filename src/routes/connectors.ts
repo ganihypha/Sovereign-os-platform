@@ -10,6 +10,7 @@ import { createRepo } from '../lib/repo'
 import { isAuthenticated } from '../lib/auth'
 import { buildRoleContext, roleBadge } from '../lib/roles'
 import type { Env } from '../index'
+import { processWebhookQueue, getQueueStats, getRecentQueueItems } from '../lib/webhookQueueService'
 
 const APPROVAL_BADGE: Record<string, string> = {
   pending: 'badge-yellow',
@@ -48,6 +49,11 @@ export function createConnectorsRoute() {
     const repo = createRepo(c.env.DB)
     const isAuth = await isAuthenticated(c, c.env)
     const roleCtx = buildRoleContext(isAuth)
+
+    // P12: Lazy webhook queue processing on each /connectors load
+    if (c.env.DB) {
+      processWebhookQueue(c.env.DB).catch(() => {})
+    }
 
     const connectors = await repo.getConnectors()
 
@@ -227,6 +233,66 @@ export function createConnectorsRoute() {
         </div>
       </div>`).join('')
 
+    // P12: Webhook delivery queue stats
+    let queueStats = { total: 0, pending: 0, delivered: 0, failed: 0, retrying: 0 }
+    let recentItems: Awaited<ReturnType<typeof getRecentQueueItems>> = []
+    if (c.env.DB) {
+      try {
+        [queueStats, recentItems] = await Promise.all([
+          getQueueStats(c.env.DB),
+          getRecentQueueItems(c.env.DB, 10)
+        ])
+      } catch { /* graceful */ }
+    }
+
+    const queueRows = recentItems.map(item => {
+      const statusColor = item.status === 'delivered' ? '#22c55e' : item.status === 'failed' ? '#ef4444' : item.status === 'retrying' ? '#f59e0b' : '#4f8ef7'
+      return `
+        <tr style="border-bottom:1px solid var(--border);font-size:11px">
+          <td style="padding:8px 10px;color:var(--text3);font-family:monospace">${item.id.slice(0,12)}</td>
+          <td style="padding:8px 10px;color:var(--text2)">${item.event_type}</td>
+          <td style="padding:8px 10px"><span style="padding:2px 6px;border-radius:4px;font-size:10px;background:${statusColor}18;color:${statusColor};border:1px solid ${statusColor}30;font-weight:600">${item.status}</span></td>
+          <td style="padding:8px 10px;color:var(--text3)">${item.attempt_count}/${item.max_attempts}</td>
+          <td style="padding:8px 10px;color:var(--text3);font-size:10px">${item.last_error ? item.last_error.slice(0,40) : '—'}</td>
+          <td style="padding:8px 10px;color:var(--text3)">${item.created_at ? item.created_at.slice(0,16) : '—'}</td>
+        </tr>`
+    }).join('')
+
+    const whqHtml = `
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-top:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+          <div>
+            <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:2px">Webhook Delivery Queue</div>
+            <div style="font-size:11px;color:var(--text3)">P12 — Lazy retry processing · ${queueStats.total} total items</div>
+          </div>
+          <div style="display:flex;gap:16px;flex-wrap:wrap">
+            ${[
+              { label: 'Pending', val: queueStats.pending, color: '#4f8ef7' },
+              { label: 'Delivered', val: queueStats.delivered, color: '#22c55e' },
+              { label: 'Retrying', val: queueStats.retrying, color: '#f59e0b' },
+              { label: 'Failed', val: queueStats.failed, color: '#ef4444' },
+            ].map(s => `<div style="text-align:center"><div style="font-size:18px;font-weight:700;color:${s.color}">${s.val}</div><div style="font-size:10px;color:var(--text3)">${s.label}</div></div>`).join('')}
+          </div>
+        </div>
+        ${recentItems.length > 0 ? `
+        <div style="overflow:auto">
+          <table style="width:100%;border-collapse:collapse;min-width:500px">
+            <thead><tr style="background:var(--bg3)">
+              <th style="padding:8px 10px;text-align:left;font-size:10px;color:var(--text3);font-weight:600">ID</th>
+              <th style="padding:8px 10px;text-align:left;font-size:10px;color:var(--text3);font-weight:600">Event Type</th>
+              <th style="padding:8px 10px;text-align:left;font-size:10px;color:var(--text3);font-weight:600">Status</th>
+              <th style="padding:8px 10px;text-align:left;font-size:10px;color:var(--text3);font-weight:600">Attempts</th>
+              <th style="padding:8px 10px;text-align:left;font-size:10px;color:var(--text3);font-weight:600">Last Error</th>
+              <th style="padding:8px 10px;text-align:left;font-size:10px;color:var(--text3);font-weight:600">Created</th>
+            </tr></thead>
+            <tbody>${queueRows}</tbody>
+          </table>
+        </div>` : `<div style="font-size:12px;color:var(--text3);text-align:center;padding:16px">No webhook queue items yet.</div>`}
+        <div style="margin-top:10px;font-size:10px;color:var(--text3)">
+          Retry backoff: 1m → 5m → 30m (max 3 attempts). Queue processed lazily on each page load.
+        </div>
+      </div>`
+
     const content = `
       <div class="law-bar">Connector Hub — Governed Integration Registry | All integrations must be registered, bounded, inspectable, and approval-aware</div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:16px;padding:10px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:6px">
@@ -251,7 +317,10 @@ export function createConnectorsRoute() {
         </div>
         ${connectorCards || '<p class="text-muted text-sm">No connectors registered</p>'}
       </div>
-      ${registerForm}`
+      ${registerForm}
+
+      <!-- P12: Webhook Delivery Queue Status -->
+      ${whqHtml}`
 
     return c.html(layout('Connector Hub', content, '/connectors'))
   })

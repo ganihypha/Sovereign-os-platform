@@ -5,6 +5,7 @@ import { Hono } from 'hono'
 import { layout, badgeStatus, badgeApprovalTier, timeAgo } from '../layout'
 import { createRepo } from '../lib/repo'
 import type { Env } from '../index'
+import { abacGuardApprove } from '../lib/abacMiddleware'
 
 export function createApprovalsRoute() {
   const route = new Hono<{ Bindings: Env }>()

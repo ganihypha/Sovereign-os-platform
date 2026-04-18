@@ -12,6 +12,7 @@ import {
   SUBJECT_TYPE_OPTIONS, RESOURCE_TYPE_OPTIONS, ACTION_OPTIONS_ABAC,
   type Policy
 } from '../lib/abacService'
+import { abacGuardPoliciesWrite } from '../lib/abacMiddleware'
 
 function effectBadge(effect: 'allow' | 'deny'): string {
   return effect === 'allow'
@@ -173,8 +174,8 @@ export function createPoliciesRoute() {
     return c.html(layout('ABAC Policies', content, '/policies'))
   })
 
-  // POST /policies/create
-  route.post('/create', async (c) => {
+  // POST /policies/create — ABAC guarded (P12)
+  route.post('/create', abacGuardPoliciesWrite, async (c) => {
     if (!c.env.DB) return c.redirect('/policies')
     const body = await c.req.parseBody()
     await createPolicy(c.env.DB, {

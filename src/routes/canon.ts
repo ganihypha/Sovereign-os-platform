@@ -11,6 +11,7 @@ import { createRepo } from '../lib/repo'
 import { isAuthenticated } from '../lib/auth'
 import type { Env } from '../index'
 import type { CanonCandidate } from '../types'
+import { abacGuardCanonPromote } from '../lib/abacMiddleware'
 
 const STATUS_BADGE: Record<string, string> = {
   candidate: '<span style="background:rgba(79,142,247,0.15);color:#4f8ef7;border:1px solid rgba(79,142,247,0.3);border-radius:4px;padding:2px 8px;font-size:11px;font-weight:700">CANDIDATE</span>',
@@ -195,8 +196,8 @@ export function createCanonRoute() {
     return c.html(layout('Canon Promotion', content, '/canon'))
   })
 
-  // POST promote
-  route.post('/:id/promote', async (c) => {
+  // POST promote — ABAC guarded (P12)
+  route.post('/:id/promote', abacGuardCanonPromote, async (c) => {
     const isAuth = await isAuthenticated(c, c.env)
     if (!isAuth) return c.json({ error: 'AUTH_REQUIRED', message: 'Founder or Architect key required.' }, 401)
 
@@ -237,8 +238,8 @@ export function createCanonRoute() {
     return c.json({ success: true, id, action: 'promoted' })
   })
 
-  // POST reject
-  route.post('/:id/reject', async (c) => {
+  // POST reject — ABAC guarded (P12)
+  route.post('/:id/reject', abacGuardCanonPromote, async (c) => {
     const isAuth = await isAuthenticated(c, c.env)
     if (!isAuth) return c.json({ error: 'AUTH_REQUIRED', message: 'Founder or Architect key required.' }, 401)
 

@@ -11,6 +11,8 @@ import type { Env } from '../index'
 import { createRepo } from '../lib/repo'
 import { layout } from '../layout'
 import { isAuthenticated } from '../lib/auth'
+import { getApiKeyPolicies, assignPolicyToApiKey, removePolicyFromApiKey, getApiKeyCapabilities } from '../lib/apiKeyPermissionsService'
+import { getAllPolicies } from '../lib/abacService'
 
 // ---- Secure key generation (Web Crypto) ----
 async function generateApiKey(): Promise<{ rawKey: string; keyHash: string }> {
@@ -189,6 +191,39 @@ export function createApiKeysRoute() {
 
     // Redirect with raw key in query param (flash once)
     return c.redirect(`/api-keys?new_key=${encodeURIComponent(rawKey)}`)
+  })
+
+  // GET /api-keys/:id/capabilities — API key capability summary (P12)
+  app.get('/:id/capabilities', async (c) => {
+    if (!c.env.DB) return c.json({ error: 'no db' }, 503)
+    const id = c.req.param('id')
+    const caps = await getApiKeyCapabilities(c.env.DB, id)
+    return c.json(caps)
+  })
+
+  // POST /api-keys/:id/assign-policy — assign ABAC policy to API key (P12)
+  app.post('/:id/assign-policy', async (c) => {
+    const authenticated = await isAuthenticated(c, c.env)
+    if (!authenticated) return c.json({ error: 'AUTH_REQUIRED' }, 401)
+    if (!c.env.DB) return c.redirect('/api-keys')
+    const id = c.req.param('id')
+    const body = await c.req.parseBody()
+    const policyId = String(body['policy_id'] || '')
+    if (!policyId) return c.redirect(`/api-keys?error=policy_id+required`)
+    await assignPolicyToApiKey(c.env.DB, id, policyId, 'ui')
+    return c.redirect('/api-keys')
+  })
+
+  // POST /api-keys/:id/remove-policy — remove ABAC policy from API key (P12)
+  app.post('/:id/remove-policy', async (c) => {
+    const authenticated = await isAuthenticated(c, c.env)
+    if (!authenticated) return c.json({ error: 'AUTH_REQUIRED' }, 401)
+    if (!c.env.DB) return c.redirect('/api-keys')
+    const id = c.req.param('id')
+    const body = await c.req.parseBody()
+    const policyId = String(body['policy_id'] || '')
+    await removePolicyFromApiKey(c.env.DB, id, policyId)
+    return c.redirect('/api-keys')
   })
 
   // POST /api-keys/:id/revoke — Revoke key

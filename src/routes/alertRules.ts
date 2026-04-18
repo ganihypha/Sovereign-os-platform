@@ -14,6 +14,7 @@ import {
   collectPlatformMetrics, METRIC_OPTIONS, OPERATOR_OPTIONS, ACTION_OPTIONS,
   type AlertRule
 } from '../lib/alertRulesService'
+import { abacGuardAlertRulesWrite } from '../lib/abacMiddleware'
 
 function statusBadge(status: string): string {
   const map: Record<string, { bg: string; color: string; border: string }> = {
@@ -246,7 +247,8 @@ export function createAlertRulesRoute() {
   })
 
   // POST /alert-rules/create
-  route.post('/create', async (c) => {
+  // POST /alert-rules/create — ABAC guarded (P12)
+  route.post('/create', abacGuardAlertRulesWrite, async (c) => {
     if (!c.env.DB) return c.redirect('/alert-rules')
     const body = await c.req.parseBody()
     await createAlertRule(c.env.DB, {

@@ -1,0 +1,246 @@
+// ============================================================
+// SOVEREIGN OS PLATFORM — REPORT SUBSCRIPTIONS SURFACE (P12)
+// Purpose: Scheduled report subscription management
+// Surface: /reports/subscriptions
+// Integration: reportSubscriptionService, reportingService
+// ============================================================
+
+import { Hono } from 'hono'
+import { layout } from '../layout'
+import type { Env } from '../index'
+import {
+  getAllSubscriptions, createSubscription, toggleSubscription,
+  deleteSubscription, getSubscriptionRuns, processSubscriptions,
+  type ReportSubscription
+} from '../lib/reportSubscriptionService'
+import { REPORT_TYPES } from '../lib/reportingService'
+
+const SCHEDULE_OPTIONS = [
+  { value: 'hourly',  label: 'Hourly' },
+  { value: 'daily',   label: 'Daily' },
+  { value: 'weekly',  label: 'Weekly' },
+]
+
+const DELIVERY_OPTIONS = [
+  { value: 'store',   label: 'Store in D1 (report_jobs)' },
+  { value: 'email',   label: 'Email (graceful degradation)' },
+  { value: 'webhook', label: 'Webhook (POST to URL)' },
+]
+
+function statusBadge(active: number): string {
+  return active === 1
+    ? `<span style="padding:2px 8px;border-radius:4px;font-size:10px;background:rgba(34,197,94,0.08);color:#22c55e;border:1px solid rgba(34,197,94,0.2);font-weight:600">Active</span>`
+    : `<span style="padding:2px 8px;border-radius:4px;font-size:10px;background:rgba(107,114,128,0.08);color:#6b7280;border:1px solid rgba(107,114,128,0.2);font-weight:600">Inactive</span>`
+}
+
+function deliveryBadge(type: string): string {
+  const map: Record<string, string> = {
+    store: '#4f8ef7', email: '#f59e0b', webhook: '#8b5cf6'
+  }
+  const c = map[type] || '#6b7280'
+  return `<span style="padding:2px 8px;border-radius:4px;font-size:10px;background:${c}18;color:${c};border:1px solid ${c}30">${type}</span>`
+}
+
+function timeFrom(iso?: string): string {
+  if (!iso) return '—'
+  try {
+    const d = new Date(iso)
+    const now = new Date()
+    const diff = d.getTime() - now.getTime()
+    if (Math.abs(diff) < 60000) return 'now'
+    const mins = Math.round(Math.abs(diff) / 60000)
+    if (mins < 60) return diff > 0 ? `in ${mins}m` : `${mins}m ago`
+    const hrs = Math.round(mins / 60)
+    if (hrs < 24) return diff > 0 ? `in ${hrs}h` : `${hrs}h ago`
+    const days = Math.round(hrs / 24)
+    return diff > 0 ? `in ${days}d` : `${days}d ago`
+  } catch { return iso }
+}
+
+export function createReportSubscriptionsRoute() {
+  const route = new Hono<{ Bindings: Env }>()
+
+  // GET /reports/subscriptions
+  route.get('/', async (c) => {
+    if (!c.env.DB) return c.html(layout('Report Subscriptions', '<div class="card"><p class="text-muted">Database not available.</p></div>', '/reports'))
+
+    // Lazy process due subscriptions (KV TTL polling)
+    const processed = await processSubscriptions(c.env.DB, c.env.RATE_LIMITER_KV)
+
+    const subs = await getAllSubscriptions(c.env.DB)
+    const active = subs.filter(s => s.active === 1)
+
+    const rows = subs.map(s => `
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:10px 12px;font-size:12px;font-weight:600;color:var(--text)">${s.report_type}</td>
+        <td style="padding:10px 12px">${statusBadge(s.active)}</td>
+        <td style="padding:10px 12px;font-size:11px;color:var(--text3);text-transform:capitalize">${s.schedule}</td>
+        <td style="padding:10px 12px">${deliveryBadge(s.delivery_type)}</td>
+        <td style="padding:10px 12px;font-size:11px;color:var(--text3)">${s.recipient || '—'}</td>
+        <td style="padding:10px 12px;font-size:11px;color:var(--text3)">${timeFrom(s.last_run_at)}</td>
+        <td style="padding:10px 12px;font-size:11px;color:${new Date(s.next_run_at||'') <= new Date() ? '#f59e0b' : 'var(--text3)'}">${timeFrom(s.next_run_at)}</td>
+        <td style="padding:10px 12px;font-size:11px;color:var(--text3)">${s.run_count}</td>
+        <td style="padding:10px 12px">
+          <div style="display:flex;gap:6px;align-items:center">
+            <form action="/reports/subscriptions/${s.id}/toggle" method="POST" style="display:inline">
+              <button type="submit" style="background:${s.active===1?'rgba(107,114,128,0.15)':'rgba(34,197,94,0.15)'};color:${s.active===1?'#9aa3b2':'#22c55e'};border:none;border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer;font-weight:600">
+                ${s.active === 1 ? 'Pause' : 'Resume'}
+              </button>
+            </form>
+            <form action="/reports/subscriptions/${s.id}/run-now" method="POST" style="display:inline">
+              <button type="submit" style="background:rgba(79,142,247,0.12);color:#4f8ef7;border:none;border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer;font-weight:600">Run Now</button>
+            </form>
+            <form action="/reports/subscriptions/${s.id}/delete" method="POST" style="display:inline" onsubmit="return confirm('Delete subscription?')">
+              <button type="submit" style="background:rgba(239,68,68,0.1);color:#ef4444;border:none;border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer;font-weight:600">Delete</button>
+            </form>
+          </div>
+        </td>
+      </tr>
+    `).join('')
+
+    const content = `
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;flex-wrap:wrap;gap:12px">
+        <div>
+          <h1 style="font-size:20px;font-weight:700;color:var(--text);margin-bottom:4px">Report Subscriptions</h1>
+          <div style="font-size:12px;color:var(--text2)">P12 — Scheduled Report Snapshots · ${subs.length} subscriptions · <span style="color:#22c55e">${active.length} active</span>
+            ${processed.processed > 0 ? `<span style="margin-left:8px;padding:2px 8px;border-radius:4px;font-size:10px;background:rgba(34,197,94,0.08);color:#22c55e;border:1px solid rgba(34,197,94,0.2)">↻ ${processed.processed} auto-ran</span>` : ''}
+          </div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <a href="/reports" style="background:var(--bg2);color:var(--text2);border:1px solid var(--border);border-radius:6px;padding:8px 14px;font-size:11px;text-decoration:none">← Reports</a>
+          <a href="/reports/jobs" style="background:var(--bg2);color:var(--text2);border:1px solid var(--border);border-radius:6px;padding:8px 14px;font-size:11px;text-decoration:none">Job History →</a>
+        </div>
+      </div>
+
+      <!-- Stats row -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;margin-bottom:24px">
+        ${[
+          { label: 'Total Subscriptions', val: subs.length, color: '#4f8ef7' },
+          { label: 'Active', val: active.length, color: '#22c55e' },
+          { label: 'Total Runs', val: subs.reduce((a, s) => a + (s.run_count || 0), 0), color: '#22d3ee' },
+          { label: 'Auto-ran Today', val: processed.processed, color: '#f59e0b' },
+        ].map(s => `
+          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:14px">
+            <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px">${s.label}</div>
+            <div style="font-size:26px;font-weight:700;color:${s.color}">${s.val}</div>
+          </div>
+        `).join('')}
+      </div>
+
+      <!-- Subscription Table -->
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);overflow:auto;margin-bottom:24px">
+        <table style="width:100%;border-collapse:collapse;min-width:700px">
+          <thead>
+            <tr style="background:var(--bg3)">
+              <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--text3);font-weight:600">Report Type</th>
+              <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--text3);font-weight:600">Status</th>
+              <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--text3);font-weight:600">Schedule</th>
+              <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--text3);font-weight:600">Delivery</th>
+              <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--text3);font-weight:600">Recipient</th>
+              <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--text3);font-weight:600">Last Run</th>
+              <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--text3);font-weight:600">Next Run</th>
+              <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--text3);font-weight:600">Runs</th>
+              <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--text3);font-weight:600">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows || '<tr><td colspan="9" style="padding:24px;text-align:center;color:var(--text3);font-size:12px">No subscriptions yet. Create one below.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Create Subscription Form -->
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:24px;margin-bottom:16px">
+        <h2 style="font-size:15px;font-weight:700;color:var(--text);margin-bottom:16px">Create New Subscription</h2>
+        <form action="/reports/subscriptions/create" method="POST">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:16px">
+            <div>
+              <label style="display:block;font-size:11px;color:var(--text3);margin-bottom:6px">Report Type *</label>
+              <select name="report_type" style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:12px">
+                ${REPORT_TYPES.map(r => `<option value="${r.value}">${r.label}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label style="display:block;font-size:11px;color:var(--text3);margin-bottom:6px">Schedule *</label>
+              <select name="schedule" style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:12px">
+                ${SCHEDULE_OPTIONS.map(o => `<option value="${o.value}">${o.label}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label style="display:block;font-size:11px;color:var(--text3);margin-bottom:6px">Delivery Type *</label>
+              <select name="delivery_type" style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:12px">
+                ${DELIVERY_OPTIONS.map(o => `<option value="${o.value}">${o.label}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 160px;gap:16px;margin-bottom:16px">
+            <div>
+              <label style="display:block;font-size:11px;color:var(--text3);margin-bottom:6px">Recipient (email / webhook URL)</label>
+              <input name="recipient" placeholder="user@example.com or https://hook.example.com/..." style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:12px;box-sizing:border-box">
+            </div>
+            <div style="display:flex;align-items:flex-end">
+              <button type="submit" style="background:var(--accent);color:#fff;border:none;border-radius:6px;padding:9px 24px;font-size:13px;font-weight:600;cursor:pointer;width:100%">Create</button>
+            </div>
+          </div>
+        </form>
+      </div>
+
+      <div style="padding:12px 16px;background:rgba(139,92,246,0.06);border:1px solid rgba(139,92,246,0.2);border-radius:8px;font-size:11px;color:var(--text3)">
+        <span style="color:#8b5cf6;font-weight:600">P12 Scheduled Snapshots:</span>
+        Subscriptions are checked on each page load (KV TTL polling — lazy trigger).
+        Reports are stored in <code>report_jobs</code> table. Email/webhook delivery gracefully degrades when secrets not configured.
+        <a href="/reports/jobs" style="color:#8b5cf6;margin-left:4px">View generated report jobs →</a>
+      </div>
+    `
+    return c.html(layout('Report Subscriptions', content, '/reports'))
+  })
+
+  // POST /reports/subscriptions/create
+  route.post('/create', async (c) => {
+    if (!c.env.DB) return c.redirect('/reports/subscriptions')
+    const body = await c.req.parseBody()
+    await createSubscription(c.env.DB, {
+      report_type: String(body['report_type'] || 'platform_summary'),
+      schedule: String(body['schedule'] || 'daily'),
+      delivery_type: String(body['delivery_type'] || 'store'),
+      recipient: String(body['recipient'] || '') || undefined,
+      created_by: 'ui',
+    })
+    return c.redirect('/reports/subscriptions')
+  })
+
+  // POST /reports/subscriptions/:id/toggle
+  route.post('/:id/toggle', async (c) => {
+    if (!c.env.DB) return c.redirect('/reports/subscriptions')
+    await toggleSubscription(c.env.DB, c.req.param('id'))
+    return c.redirect('/reports/subscriptions')
+  })
+
+  // POST /reports/subscriptions/:id/run-now — manual trigger
+  route.post('/:id/run-now', async (c) => {
+    if (!c.env.DB) return c.redirect('/reports/subscriptions')
+    // Force next_run_at to past so processSubscriptions picks it up
+    await c.env.DB.prepare(`
+      UPDATE report_subscriptions SET next_run_at = ?, updated_at = ? WHERE id = ?
+    `).bind(new Date(0).toISOString(), new Date().toISOString(), c.req.param('id')).run()
+    // Process immediately
+    await processSubscriptions(c.env.DB, c.env.RATE_LIMITER_KV)
+    return c.redirect('/reports/subscriptions')
+  })
+
+  // POST /reports/subscriptions/:id/delete
+  route.post('/:id/delete', async (c) => {
+    if (!c.env.DB) return c.redirect('/reports/subscriptions')
+    await deleteSubscription(c.env.DB, c.req.param('id'))
+    return c.redirect('/reports/subscriptions')
+  })
+
+  // GET /reports/subscriptions/:id/runs — run history for a subscription
+  route.get('/:id/runs', async (c) => {
+    if (!c.env.DB) return c.json({ error: 'no db' }, 503)
+    const runs = await getSubscriptionRuns(c.env.DB, c.req.param('id'))
+    return c.json({ subscription_id: c.req.param('id'), runs, count: runs.length })
+  })
+
+  return route
+}

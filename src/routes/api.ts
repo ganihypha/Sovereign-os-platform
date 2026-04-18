@@ -7,6 +7,8 @@ import { Hono } from 'hono'
 import { createRepo } from '../lib/repo'
 import { triggerConnectorWebhooks } from '../lib/webhookDelivery'
 import type { Env } from '../index'
+import { abacGuardApprove } from '../lib/abacMiddleware'
+import { emitEvent } from '../lib/eventBusService'
 
 export function createApiRoute() {
   const route = new Hono<{ Bindings: Env }>()
@@ -89,10 +91,21 @@ export function createApiRoute() {
       decision_reason: '',
       resolved_at: null,
     })
+    // P12: Emit event to platform event bus (fire-and-forget)
+    if (c.env.DB) {
+      emitEvent(c.env.DB, {
+        event_type: 'approval.submitted',
+        source_surface: 'approvals',
+        actor: String(body.requested_by || 'Operator'),
+        resource_type: 'approval_request',
+        payload: { action_type: String(body.action_type || ''), tier: String(body.approval_tier || '1') },
+        severity: 'info'
+      }).catch(() => {})
+    }
     return c.redirect('/approvals')
   })
 
-  route.post('/approvals/:id/decision', async (c) => {
+  route.post('/approvals/:id/decision', abacGuardApprove, async (c) => {
     const repo = createRepo(c.env.DB)
     const id = c.req.param('id')
     const body = await c.req.parseBody()
@@ -112,6 +125,18 @@ export function createApiRoute() {
       approved_by,
       reason: reason.slice(0, 100),
     }).catch(() => { /* webhook failure must not affect approval flow */ })
+    // P12: Emit event to platform event bus (fire-and-forget)
+    if (c.env.DB) {
+      emitEvent(c.env.DB, {
+        event_type: `approval.${action}`,
+        source_surface: 'approvals',
+        actor: approved_by,
+        resource_id: id,
+        resource_type: 'approval_request',
+        payload: { action, reason: reason.slice(0, 100) },
+        severity: action === 'rejected' ? 'warning' : 'info'
+      }).catch(() => {})
+    }
     return c.redirect('/approvals')
   })
 

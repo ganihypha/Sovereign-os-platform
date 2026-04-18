@@ -31,6 +31,7 @@ import {
   approveFederatedIntent,
 } from '../lib/federationService'
 import { writeAuditEvent } from '../lib/auditService'
+import { emitEvent } from '../lib/eventBusService'
 
 const STATUS_BADGE: Record<string, string> = {
   pending: 'badge-yellow',
@@ -244,6 +245,18 @@ export function createFederationRoute() {
       federation_notes,
       created_by: 'Platform Architect',
     })
+
+    // P12: Emit federation.requested event
+    if (c.env.DB) {
+      emitEvent(c.env.DB, {
+        event_type: 'federation.requested',
+        source_surface: 'federation',
+        actor: 'Platform Architect',
+        resource_type: 'federation',
+        payload: { source_tenant_id, target_tenant_id, scope },
+        severity: 'info'
+      }).catch(() => {})
+    }
 
     return c.redirect('/federation?ok=created')
   })
