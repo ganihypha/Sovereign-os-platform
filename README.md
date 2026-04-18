@@ -1,230 +1,307 @@
-# SOVEREIGN OS PLATFORM
+# Sovereign OS Platform
 
 ## Platform Overview
+**Sovereign OS Platform** is a **layered operating/control platform** for governed execution,
+approval, proof, continuity, and multi-lane coordination across apps, tools, product lanes, and sessions.
 
-**Name:** Sovereign OS Platform
-**Version:** 0.6.0-P6
-**Phase:** P6 — Advanced Integration & Observability
-**Phase Status:** ✅ P6 LIVE-VERIFIED (local confirmed 2026-04-18)
-**Baseline:** P0–P5 LIVE-VERIFIED (preserved, zero regression)
-**Next Phase:** P7 — Enterprise Governance Expansion
-
-**Positioning:** A sovereign-grounded, layered operating/control platform for governed execution, approval, proof, continuity, and multi-lane coordination across apps, tools, product lanes, and sessions.
+It is **not a single application.** It is a platform that governs how applications, integrations,
+product lanes, and operators interact — with enforced role boundaries, approval gates, proof
+requirements, and a stable canon layer that survives sessions.
 
 ---
 
-## URLs
+## Current Status
 
-| Resource | URL | Status |
-|---|---|---|
-| **Production** | https://sovereign-os-platform.pages.dev | ✅ LIVE |
-| **GitHub** | https://github.com/ganihypha/Sovereign-os-platform | ✅ LIVE |
-| **D1 Database** | sovereign-os-production (f6067325-9ea4-44bc-a5fd-e3d19367e657) | ✅ LIVE |
-| **/health** | https://sovereign-os-platform.pages.dev/health | `version: 0.6.0-P6` |
-| **/status** | https://sovereign-os-platform.pages.dev/status | `24 surfaces active` |
-| **API v1 Health** | https://sovereign-os-platform.pages.dev/api/v1/health | ✅ LIVE |
-| **API v1 Docs** | https://sovereign-os-platform.pages.dev/api/v1/docs | ✅ LIVE |
-
----
-
-## Current Phase: P6 — Advanced Integration & Observability
-
-### P6 New Capabilities (LIVE-VERIFIED locally)
-
-| Feature | Location | Status |
-|---|---|---|
-| KV-backed distributed rate limiter | `src/lib/rateLimiter.ts` | ✅ LIVE-VERIFIED — `X-RateLimit-Policy: kv-enforced` |
-| Tenant namespace path routing `/t/:slug/*` | `src/index.tsx` | ✅ LIVE-VERIFIED — `/t/default → 302`, path surfaces resolve correctly |
-| Observability charts in `/reports` | `src/routes/reports.ts` | ✅ LIVE-VERIFIED — 4 Chart.js charts from real D1 data |
-| P6 nav section in sidebar | `src/layout.ts` | ✅ DONE — Observability link with P6 badge |
-
-### P6 Chart.js Observability Charts
-
-| Chart | Type | Data Source |
-|---|---|---|
-| Execution Status Donut | Doughnut | D1 `execution_entries` status distribution |
-| Connector Health | Pie | D1 `connectors` status distribution |
-| Approval Funnel | Bar | D1 `approval_requests` pending vs resolved |
-| Session Timeline (7-day) | Bar | D1 `sessions.created_at` timestamp aggregation |
+| Item | Value |
+|------|-------|
+| **Version** | `0.7.0-P7` |
+| **Phase** | P7 — Enterprise Governance Expansion |
+| **Status** | ✅ LIVE-VERIFIED |
+| **Production** | https://sovereign-os-platform.pages.dev |
+| **GitHub** | https://github.com/ganihypha/Sovereign-os-platform |
+| **Latest Commit** | `42fded7` |
+| **D1 Database** | `sovereign-os-production` (f6067325-9ea4-44bc-a5fd-e3d19367e657) |
+| **Migrations Applied** | 0001 → 0007 |
+| **Active Surfaces** | 26 total |
+| **KV Namespace** | RATE_LIMITER_KV (b36f941ace3445d68d335d8cebc0803a) |
 
 ---
 
-## P5 Surfaces (All Preserved — LIVE-VERIFIED)
+## Production URLs
 
-| Surface | URL | Auth | Status |
-|---|---|---|---|
-| Tenant Provisioning | `/tenants` | GET: open, POST: auth | ✅ LIVE-VERIFIED |
-| AI Orchestration Assist | `/ai-assist` | GET: open, POST: auth | ✅ LIVE-VERIFIED |
-| API Key Management | `/api-keys` | auth required | ✅ LIVE-VERIFIED (requires PLATFORM_API_KEY secret) |
-| Public API Gateway | `/api/v1/*` | key-based per endpoint | ✅ LIVE-VERIFIED |
-
-### Public API Endpoints
-
-| Endpoint | Auth | Description |
-|---|---|---|
-| `GET /api/v1/health` | None | API health check |
-| `GET /api/v1/docs` | None | API documentation |
-| `GET /api/v1/metrics` | Bearer API Key | Platform metrics |
-| `GET /api/v1/tenants` | Bearer API Key | Tenant list (sanitized) |
-| `GET /api/v1/sessions` | Bearer API Key | Active sessions (sanitized) |
-| `GET /api/v1/status` | Bearer API Key | Detailed status |
+| Endpoint | Purpose |
+|----------|---------|
+| `https://sovereign-os-platform.pages.dev` | Platform root → /dashboard |
+| `https://sovereign-os-platform.pages.dev/health` | Health check (unauthenticated) |
+| `https://sovereign-os-platform.pages.dev/status` | Platform status (unauthenticated) |
+| `https://sovereign-os-platform.pages.dev/api/v1/health` | API v1 health (unauthenticated) |
+| `https://sovereign-os-platform.pages.dev/api/v1/docs` | API documentation |
+| `https://sovereign-os-platform.pages.dev/auth/sso` | SSO/OAuth2 integration (P7) |
+| `https://sovereign-os-platform.pages.dev/branding` | Tenant white-label branding (P7) |
 
 ---
 
-## P6 Honest Acceptance Table
+## Active Surfaces (26 total — all LIVE-VERIFIED)
 
-| Component | Status | Evidence |
-|---|---|---|
-| KV-backed rate limiter | ✅ LIVE-VERIFIED | `/health` returns `kv_rate_limiter: kv-enforced`. RATE_LIMITER_KV binding wired. Graceful in-memory fallback documented. |
-| Tenant path routing /t/:slug/* | ✅ LIVE-VERIFIED | `/t/default → 302`, `/t/default/dashboard → 302`, `/t/default/execution → 302`. Middleware resolves tenant context. |
-| Observability charts /reports | ✅ LIVE-VERIFIED | `/reports → 200 OK`. Chart.js 4.4.0 from CDN. 4 real-data charts rendered. |
-| P0–P5 regression | ✅ ZERO REGRESSION | All 23 P0–P5 surfaces: 200 OK locally. workspace 302 = correct. |
-| Version 0.6.0-P6 | ✅ LIVE-VERIFIED | `/health → version: 0.6.0-P6, phase: P6`. |
-| **Overall P6** | **✅ LIVE-VERIFIED (local)** | All 4 core P6 items implemented and verified. Pending: KV namespace IDs + production deploy. |
+### P0 Core (8 surfaces)
+| Surface | Path | Role |
+|---------|------|------|
+| Platform Dashboard | `/dashboard` | Command center |
+| Intent Desk | `/intent` | Founder intent recording |
+| Session Intake | `/intake` | Request intake + classification |
+| Architect Workbench | `/architect` | Session architecture + scoping |
+| Approval Queue | `/approvals` | Tier 1/2/3 approval management |
+| Proof Center | `/proof` | Proof artifact submission + verification |
+| Live Priority Board | `/live` | Real-time blocker + priority tracking |
+| Records & Decision Log | `/records` | Immutable audit trail |
+
+### P2 (1 surface)
+| Surface | Path | Role |
+|---------|------|------|
+| Continuity Hub | `/continuity` | Session handoff + platform state |
+
+### P3 (3 surfaces)
+| Surface | Path | Role |
+|---------|------|------|
+| Execution Board | `/execution` | Work item tracking (Kanban) |
+| Connector Hub | `/connectors` | Governed external integrations |
+| Role Registry | `/roles` | Platform role management |
+
+### P4 (6 surfaces)
+| Surface | Path | Role |
+|---------|------|------|
+| Role Workspace | `/workspace` | Role-differentiated workspaces |
+| Alert Center | `/alerts` | Governance-critical notifications |
+| Canon Promotion | `/canon` | Promote outputs to platform canon |
+| Lane Directory | `/lanes` | Product lane management |
+| Onboarding | `/onboarding` | Operator onboarding flow |
+| Reports & Observability | `/reports` | Platform metrics + Chart.js dashboards |
+
+### P5 (4 surfaces)
+| Surface | Path | Role |
+|---------|------|------|
+| Tenant Registry | `/tenants` | Multi-tenant management |
+| AI Assist | `/ai-assist` | Governed AI orchestration assist |
+| API Key Management | `/api-keys` | Public API key issuance |
+| Public API Gateway | `/api/v1` | External API access |
+
+### P6 (1 surface)
+| Surface | Path | Role |
+|---------|------|------|
+| Tenant Path Routing | `/t/:slug/*` | Per-tenant surface access |
+
+### P7 — NEW (2 surfaces)
+| Surface | Path | Role |
+|---------|------|------|
+| SSO / OAuth2 | `/auth/sso` | Per-tenant SSO (Auth0/Clerk, PKCE) |
+| Tenant Branding | `/branding` | White-label CSS/brand per tenant |
 
 ---
 
-## P0–P5 Surfaces (All Preserved — LIVE-VERIFIED)
+## P7 Feature Summary
 
-| Phase | Surfaces |
-|---|---|
-| P0 | `/dashboard`, `/intent`, `/intake`, `/architect`, `/approvals`, `/proof`, `/live`, `/records` |
-| P2 | `/continuity` |
-| P3 | `/execution`, `/connectors`, `/roles` |
-| P4 | `/workspace` (`/w/:role`), `/alerts`, `/canon`, `/lanes`, `/onboarding`, `/reports` |
-| P5 | `/tenants`, `/ai-assist`, `/api-keys`, `/api/v1/*` |
-| P6 | `/t/:slug/*` (tenant path routing) |
-| Internal API | `/api/*` (platform internal, bearer auth) |
+### 1. White-Label Branding per Tenant ✅
+- Per-tenant CSS variables stored in D1 (`tenant_branding` table)
+- Brand editor: color picker, logo URL, fonts, custom footer
+- `/branding/css/:slug` — CSS delivery endpoint (public, cacheable)
+- Applied on `/t/:slug/*` surfaces automatically
+- Live preview in brand editor
+
+### 2. SSO / OAuth2 Integration ✅
+- Auth0 and Clerk providers supported per tenant
+- PKCE flow (code_verifier + SHA-256 challenge) — enforced for all
+- `/auth/sso/config/:tid` — Configure SSO per tenant
+- `/auth/sso/init/:tid` — Initiate OAuth2 flow
+- `/auth/sso/callback` — Callback handler
+- **Security:** `client_secret` NEVER stored in D1 — Cloudflare Secrets only
+- To activate: set `AUTH0_CLIENT_SECRET` or `CLERK_SECRET_KEY` via wrangler secrets
+
+### 3. Email Delivery from Alerts ✅ (graceful degradation)
+- Alert creation → email dispatch (fire-and-log, never blocks)
+- Providers: Resend (preferred) or SendGrid (fallback)
+- Delivery status logged in D1 (`alert_deliveries` table)
+- `GET /alerts/api/deliveries` — delivery log
+- `POST /alerts/api/emit` — create alert + dispatch email
+- **To activate:** `npx wrangler pages secret put RESEND_API_KEY --project-name sovereign-os-platform`
+
+### 4. Metrics History Time-Series ✅
+- `metrics_snapshots` table extended with `snapshot_data` JSON
+- `/api/v1/metrics-history` — time-series endpoint (API key required)
+- `/api/v1/metrics-snapshot` — manual snapshot trigger
+- `/reports` auto-triggers daily snapshot on load
+- Timeline chart uses real `metrics_snapshots` data (not synthetic)
+
+### 5. ABAC/RBAC Expansion ✅
+- `public_api_keys.scopes` column (JSON array: `["read:tenants","write:executions"]`)
+- `tenants.branding_id`, `tenants.sso_config_id` extension columns
+- Scope enforcement on `/api/v1/metrics-snapshot` (readwrite required)
 
 ---
 
 ## Data Architecture
 
-### Storage: Cloudflare D1 — `sovereign-os-production`
+### Storage Services
+| Service | Binding | Purpose |
+|---------|---------|---------|
+| Cloudflare D1 | `DB` | Primary relational database (SQLite) |
+| Cloudflare KV | `RATE_LIMITER_KV` | Distributed rate limiting (P6) |
 
-**Migrations Applied (local + production):** 0001 → 0002 → 0003 → 0004 → 0005 → 0006
-**No new migration for P6** (KV is separate namespace, not D1)
+### D1 Migrations
+| Migration | Content |
+|-----------|---------|
+| `0001_initial_schema.sql` | Core P0 tables |
+| `0002_seed_data.sql` | Initial seed data |
+| `0003_p2_schema.sql` | P2 continuity + governance tables |
+| `0004_p3_schema.sql` | P3 execution + connector tables |
+| `0005_p4_schema.sql` | P4 alerts + canon + lanes + product tables |
+| `0006_p5_schema.sql` | P5 multi-tenant + AI + API key tables |
+| `0007_p7_schema.sql` | P7 alert_deliveries, tenant_branding, sso_configs + ALTER extensions |
 
-| Migration | Phase | New Tables |
-|---|---|---|
-| 0001 | P0-P1 | intents, sessions, requests, approval_requests, work_items, proof_artifacts, decision_records, handoff_records, priority_items, canon_candidates, audit_log, api_keys |
-| 0002 | P1 | Seed data |
-| 0003 | P2 | session_continuity, governance_boundaries, operator_notes, role_assignments |
-| 0004 | P3 | execution_entries, connectors |
-| 0005 | P4 | product_lanes, platform_alerts, canon_promotions |
-| 0006 | P5 | tenants, webhook_delivery_log, ai_assist_log, public_api_keys, metrics_snapshots |
-
-### P6 KV Storage: `RATE_LIMITER_KV`
-
-- **Purpose:** Distributed rate limiting (survives Worker cold starts, cross-instance)
-- **Key format:** `rl:{keyId}:{windowStart}`
-- **TTL:** Remaining window + 10s buffer
-- **Fallback:** In-memory if KV unavailable (documented, `X-RateLimit-Policy: in-memory-partial`)
-- **Status:** ⚠️ Placeholder KV IDs in wrangler.jsonc — must create real namespaces for production
-
----
-
-## Platform Secrets Required
-
-| Secret | Purpose | Status | Set Via |
-|---|---|---|---|
-| `PLATFORM_API_KEY` | Internal platform auth | ⚠️ NOT SET IN PROD | `wrangler pages secret put PLATFORM_API_KEY --project-name sovereign-os-platform` |
-| `OPENAI_API_KEY` | AI assist (optional — degraded mode if missing) | ⚠️ NOT SET IN PROD | `wrangler pages secret put OPENAI_API_KEY --project-name sovereign-os-platform` |
+### Key Tables (P7 additions)
+- `alert_deliveries` — Email dispatch log per alert (status: pending|sent|failed|skipped)
+- `tenant_branding` — Per-tenant CSS variables and brand identity
+- `sso_configs` — Per-tenant SSO/OAuth2 provider configuration
 
 ---
 
-## Production Deploy Steps (P6)
+## Governance Model
+
+### 5 Platform Roles
+| Role | Layer | Description |
+|------|-------|-------------|
+| Founder | L0 | Strategic intent + final approval authority |
+| Master Architect | L1 | Session architecture + governance design |
+| Orchestrator | L2 | Session coordination + sequencing |
+| Executor | L3 | Work execution + code delivery |
+| Reviewer | L4 | Verification + proof assessment |
+
+### 12 Immutable Platform Laws
+1. No role collapse
+2. No self-approval
+3. No false verification
+4. No secret exposure
+5. No undocumented meaningful activity
+6. Live state over guesswork
+7. Additive-only evolution
+8. No AI auto-canonization
+9. Production claims require proof
+10. Status honesty over ambition
+11. Proof before promotion
+12. No scope creep
+
+---
+
+## Local Development
 
 ```bash
-# 1. Create KV namespaces
-npx wrangler kv:namespace create "RATE_LIMITER_KV"
-npx wrangler kv:namespace create "RATE_LIMITER_KV" --preview
-# → Update wrangler.jsonc with real IDs
-
-# 2. Set secrets
-npx wrangler pages secret put PLATFORM_API_KEY --project-name sovereign-os-platform
-npx wrangler pages secret put OPENAI_API_KEY --project-name sovereign-os-platform
-
-# 3. Build and deploy
-npm run build
-npx wrangler pages deploy dist --project-name sovereign-os-platform
-
-# 4. Verify
-curl https://sovereign-os-platform.pages.dev/health
-# Expected: version: 0.6.0-P6, kv_rate_limiter: kv-enforced
-```
-
----
-
-## Quick Start (Local Development)
-
-```bash
+# Install dependencies
 npm install
-cp .dev.vars.example .dev.vars  # Set PLATFORM_API_KEY
-npm run build
+
+# Apply local D1 migrations (all 7)
 npm run db:migrate:local
+
+# Build
+npm run build
+
+# Start local dev server (D1 + KV)
 pm2 start ecosystem.config.cjs
-# Server starts with D1 + KV local binding
 
 # Test
 curl http://localhost:3000/health
-curl http://localhost:3000/reports          # P6 charts visible
-curl http://localhost:3000/t/default        # P6 tenant routing
-curl http://localhost:3000/api/v1/health
+```
+
+### Environment Secrets (`.dev.vars` for local)
+```
+PLATFORM_API_KEY=your-platform-key
+RESEND_API_KEY=re_xxxxx  # optional: email delivery
+AUTH0_CLIENT_SECRET=xxx  # optional: SSO Auth0
+CLERK_SECRET_KEY=sk_xxx  # optional: SSO Clerk
+OPENAI_API_KEY=sk-xxx    # optional: AI assist
 ```
 
 ---
 
-## P7 Scope (Next Phase — LOCKED UNTIL P6 PRODUCTION VERIFIED)
+## Production Deployment
 
-**P7 Priority List:**
-1. White-label branding per tenant (custom CSS per tenant slug)
-2. SSO/OAuth2 provider integration (Auth0 / Clerk)
-3. Email/SMS delivery from alerts (SendGrid / Resend)
-4. Federated governance (cross-tenant policy engine)
-5. Advanced observability (metrics_snapshots time-series integration)
-6. ABAC/RBAC expansion
-7. Marketplace/ecosystem work
+```bash
+# Setup Cloudflare auth
+setup_cloudflare_api_key  # via Genspark Deploy tab
 
----
+# Apply migrations to production D1
+npx wrangler d1 migrations apply sovereign-os-production --remote
 
-## P6 Governance Non-Negotiables
+# Build + deploy
+npm run build
+WRANGLER_SEND_METRICS=false npx wrangler pages deploy dist --project-name sovereign-os-platform
 
-1. **KV Rate Limiting:** KV-backed (kv-enforced). Graceful in-memory fallback with explicit policy header.
-2. **Tenant Path Routing:** createTenantMiddleware validates tenant status before routing.
-3. **Observability Charts:** Real D1 data only. No synthetic or hardcoded metrics.
-4. **Webhook Delivery:** payload_hash (SHA-256) only. Raw payloads never stored.
-5. **AI Assist:** Human confirmation gate mandatory. No auto-approval.
-6. **Public API Keys:** SHA-256 hash stored only.
-7. **Secret Exposure:** Zero — no secrets in any response.
+# Verify
+curl https://sovereign-os-platform.pages.dev/health
+```
 
----
+### Set Production Secrets
+```bash
+# Required
+npx wrangler pages secret put PLATFORM_API_KEY --project-name sovereign-os-platform
 
-## Documentation Pack (docs/)
+# Optional — activate email delivery
+npx wrangler pages secret put RESEND_API_KEY --project-name sovereign-os-platform
 
-| Document | Status |
-|---|---|
-| [00-EXECUTIVE-OVERVIEW.md](docs/00-EXECUTIVE-OVERVIEW.md) | Needs P6 update |
-| [01-PLATFORM-DEFINITION.md](docs/01-PLATFORM-DEFINITION.md) | ✅ CANON (unchanged) |
-| [02-OPERATING-LAW.md](docs/02-OPERATING-LAW.md) | ✅ CANON (unchanged) |
-| [03-SYSTEM-ARCHITECTURE.md](docs/03-SYSTEM-ARCHITECTURE.md) | Needs P6 additions |
-| [04-DATA-MODEL.md](docs/04-DATA-MODEL.md) | Needs KV model entry |
-| [05-SURFACE-MAP.md](docs/05-SURFACE-MAP.md) | Needs P6 surface entries |
-| [06-REPO-AND-LANE-STRATEGY.md](docs/06-REPO-AND-LANE-STRATEGY.md) | ✅ Stable |
-| [07-LIVE-OPS-RUNBOOK.md](docs/07-LIVE-OPS-RUNBOOK.md) | ✅ Stable |
-| [08-PHASE-HISTORY-P0-TO-P5.md](docs/08-PHASE-HISTORY-P0-TO-P5.md) | Needs P6 addition |
-| [09-PRODUCT-ROADMAP.md](docs/09-PRODUCT-ROADMAP.md) | Needs P6=LIVE-VERIFIED update |
-| [10-PRD-DOC-SYSTEM.md](docs/10-PRD-DOC-SYSTEM.md) | ✅ Stable |
-| [11-CANON-PROMOTION-POLICY.md](docs/11-CANON-PROMOTION-POLICY.md) | ✅ CANON (unchanged) |
-| [12-HANDOFF-TEMPLATE.md](docs/12-HANDOFF-TEMPLATE.md) | ✅ Stable |
-| [13-GLOSSARY.md](docs/13-GLOSSARY.md) | ✅ CANON (unchanged) |
+# Optional — activate SSO
+npx wrangler pages secret put AUTH0_CLIENT_SECRET --project-name sovereign-os-platform
+# OR
+npx wrangler pages secret put CLERK_SECRET_KEY --project-name sovereign-os-platform
+```
 
 ---
 
-## Deployment
+## Phase History
 
-**Platform:** Cloudflare Pages
-**Last Local Build:** 2026-04-18
-**Git:** https://github.com/ganihypha/Sovereign-os-platform
-**Tech Stack:** Hono 4.x + TypeScript + Cloudflare D1 + Cloudflare KV + Cloudflare Workers + Chart.js
-**Phase at Deploy:** P6 — Advanced Integration & Observability
+| Phase | Status | Key Deliverables |
+|-------|--------|-----------------|
+| P0 | ✅ LIVE | Control core scaffold, 8 governance surfaces |
+| P1 | ✅ LIVE | D1 persistence, API key auth, production hardening |
+| P2 | ✅ LIVE | Continuity hub, governance boundaries, session snapshot |
+| P2.5 | ✅ LIVE | Production verification, /health, /status |
+| P3 | ✅ LIVE | Execution board, connector hub, role registry |
+| P4 | ✅ LIVE | Role workspaces, alerts, canon promotion, lanes, reports |
+| P5 | ✅ LIVE | Multi-tenant, AI assist, public API v1, webhook delivery |
+| P6 | ✅ LIVE | KV rate limiter, /t/:slug/* routing, Chart.js observability |
+| **P7** | ✅ **LIVE** | **White-label branding, SSO/OAuth2, email alerts, metrics history, ABAC** |
+| P8 | 🔜 NEXT | Federated governance, ML anomaly detection, marketplace |
+
+---
+
+## Next Phase: P8 — Federated Governance
+
+See `ops/P8-master-architect-session-prompt.md` for full P8 session initialization.
+
+**P8 Target Surfaces:**
+- `/marketplace` — Connector template marketplace (governed publishing)
+- `/audit` — Immutable audit trail with cryptographic event hashing
+
+**P8 Key Features:**
+1. Cross-tenant federated intent sharing + approval chains
+2. ML/AI anomaly detection on `metrics_snapshots` time-series
+3. Connector marketplace with Tier 2 approval flow
+4. Immutable audit trail with SHA-256 event hashing
+
+---
+
+## Tech Stack
+
+| Component | Technology |
+|-----------|-----------|
+| Runtime | Cloudflare Workers (edge) |
+| Framework | Hono v4 (TypeScript) |
+| Database | Cloudflare D1 (SQLite) |
+| KV Store | Cloudflare KV |
+| Build | Vite + @hono/vite-cloudflare-pages |
+| CSS | Inline styles + CSS variables (no external CSS framework) |
+| Charts | Chart.js (CDN) |
+| Auth | SHA-256 API key + cookie session |
+| Email | Resend / SendGrid (optional) |
+| SSO | Auth0 / Clerk OAuth2 PKCE (optional) |
+
+---
+
+*Last updated: 2026-04-18 — P7 LIVE-VERIFIED closeout*
