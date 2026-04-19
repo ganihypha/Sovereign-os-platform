@@ -14,15 +14,15 @@ requirements, and a stable canon layer that survives sessions.
 
 | Item | Value |
 |------|-------|
-| **Version** | `1.1.0-P11` |
-| **Phase** | P11 — ABAC Enforcement, Workflow v2, Remediation, Event Bus |
+| **Version** | `1.4.0-P14` |
+| **Phase** | P14 — Alert Rules ABAC UI, Portal Policies, Tenant ABAC Middleware, Health Drill-down, Audit Improvements, Notification Integration |
 | **Status** | ✅ LIVE-VERIFIED |
 | **Production** | https://sovereign-os-platform.pages.dev |
 | **GitHub** | https://github.com/ganihypha/Sovereign-os-platform |
-| **Latest Commit** | `7e40f32` |
+| **Latest Commit** | `b9a5390` |
 | **D1 Database** | `sovereign-os-production` (f6067325-9ea4-44bc-a5fd-e3d19367e657) |
-| **Migrations Applied** | 0001 → 0011 |
-| **Active Surfaces** | 41 total |
+| **Migrations Applied** | 0001 → 0014 |
+| **Active Surfaces** | 58 total (52 P0-P13 + 6 P14 enhancements) |
 | **KV Namespace** | RATE_LIMITER_KV (b36f941ace3445d68d335d8cebc0803a) |
 
 ---
