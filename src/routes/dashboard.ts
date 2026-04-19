@@ -17,6 +17,8 @@ export function createDashboardRoute() {
     const isAuth = await isAuthenticated(c, c.env)
     const roleCtx = buildRoleContext(isAuth)
 
+    const db = c.env.DB
+
     const [sessions, approvals, priorities, proofs, continuities, notes, execEntries, connectors, alerts, lanes] = await Promise.all([
       repo.getSessions(),
       repo.getApprovalRequests(),
@@ -29,6 +31,33 @@ export function createDashboardRoute() {
       repo.getAlerts ? repo.getAlerts() : Promise.resolve([]),
       repo.getProductLanes ? repo.getProductLanes() : Promise.resolve([]),
     ])
+
+    // P16: Live platform stats from D1
+    let liveEventCount = 0
+    let liveAuditCount = 0
+    let liveNotifCount = 0
+    let liveAbacDenies = 0
+    let recentAuditEvents: any[] = []
+    let unreadNotifCount = 0
+
+    if (db) {
+      try {
+        const [ev, au, no, ab, recentAu, unreadNo] = await Promise.all([
+          db.prepare(`SELECT COUNT(*) as n FROM events`).first<{ n: number }>(),
+          db.prepare(`SELECT COUNT(*) as n FROM audit_log_v2`).first<{ n: number }>(),
+          db.prepare(`SELECT COUNT(*) as n FROM notifications`).first<{ n: number }>(),
+          db.prepare(`SELECT COUNT(*) as n FROM abac_deny_log`).first<{ n: number }>(),
+          db.prepare(`SELECT id, event_type, actor, tenant_id, created_at FROM audit_log_v2 ORDER BY created_at DESC LIMIT 10`).all<any>(),
+          db.prepare(`SELECT COUNT(*) as n FROM notifications WHERE read_at IS NULL`).first<{ n: number }>().catch(() => ({ n: 0 })),
+        ])
+        liveEventCount = ev?.n ?? 0
+        liveAuditCount = au?.n ?? 0
+        liveNotifCount = no?.n ?? 0
+        liveAbacDenies = ab?.n ?? 0
+        recentAuditEvents = recentAu.results || []
+        unreadNotifCount = unreadNo?.n ?? 0
+      } catch { /* non-blocking */ }
+    }
     const continuityAssessment = await assessContinuityHealth(repo)
 
     const activeSessions = sessions.filter(s => s.status === 'active')
@@ -156,14 +185,74 @@ export function createDashboardRoute() {
          </div>`
       : ''
 
+    // P16: Recent audit activity feed
+    const activityFeedHtml = recentAuditEvents.length > 0 ? recentAuditEvents.map(ev => {
+      const icons: Record<string, string> = {
+        'intent.created': '◈', 'approval.approved': '✓', 'approval.rejected': '✗',
+        'abac.access_denied': '🔒', 'webhook.delivery_failed': '⚡', 'event.archived': '📦',
+        'anomaly.detected': '⚠',
+      }
+      const icon = icons[ev.event_type] || '◉'
+      const colors: Record<string, string> = {
+        'abac.access_denied': 'var(--red)', 'webhook.delivery_failed': 'var(--orange)',
+        'anomaly.detected': 'var(--yellow)',
+      }
+      const color = colors[ev.event_type] || 'var(--text2)'
+      return `
+        <div style="display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
+          <div style="width:28px;height:28px;border-radius:6px;background:var(--bg3);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:12px">${icon}</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:12px;font-weight:500;color:${color}">${ev.event_type}</div>
+            <div style="font-size:11px;color:var(--text3)">Actor: ${ev.actor || '—'} · ${ev.tenant_id ? 'Tenant: ' + ev.tenant_id : 'Platform'}</div>
+          </div>
+          <div style="font-size:10px;color:var(--text3);flex-shrink:0">${timeAgo(ev.created_at)}</div>
+        </div>`
+    }).join('') : '<p class="text-muted text-sm">No audit events yet.</p>'
+
     const content = `
       <div class="law-bar">Operating Law: Founder → L1 Master Architect → L2 Orchestrator → L3 Executor → Proof → Review → Live State → Canon</div>
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:16px;padding:10px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:6px">
-        <span style="font-size:12px;color:var(--text2)">Storage:</span> ${persistBadge}
-        <span style="font-size:12px;color:var(--text2);margin-left:12px">Version: P3.0 — 0.3.0-P3</span>
-        <span style="font-size:12px;color:var(--text2);margin-left:12px">Build: P3 Operational Expansion</span>
+
+      <!-- P16: Quick action buttons -->
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;padding:12px 14px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;align-items:center">
+        <span style="font-size:11px;color:var(--text3);margin-right:4px">Quick Actions:</span>
+        <a href="/intent" class="btn btn-ghost btn-sm">◈ New Intent</a>
+        <a href="/events" class="btn btn-ghost btn-sm">📡 Event Bus</a>
+        <a href="/audit?format=csv" class="btn btn-ghost btn-sm">⬇ Export Audit</a>
+        <a href="/search" class="btn btn-ghost btn-sm">🔍 Search</a>
+        <a href="/metrics" class="btn btn-ghost btn-sm">📈 Metrics</a>
+        <a href="/health-dashboard" class="btn btn-ghost btn-sm">🏥 Health</a>
+        <span style="margin-left:auto;display:flex;gap:8px;align-items:center">
+          <span style="font-size:11px;color:var(--text3)">Storage:</span> ${persistBadge}
+          <span class="badge badge-blue" style="font-size:10px">v1.6.0-P16</span>
+        </span>
       </div>
+
       ${nextMove}
+
+      <!-- P16: Live platform event counts row -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:16px">
+        <div class="stat-card" style="border-left:3px solid var(--accent)">
+          <div class="stat-label">Platform Events</div>
+          <div class="stat-value" style="color:var(--accent)">${liveEventCount}</div>
+          <div class="stat-sub"><a href="/events" style="color:var(--accent)">Event Bus →</a></div>
+        </div>
+        <div class="stat-card" style="border-left:3px solid var(--yellow)">
+          <div class="stat-label">Audit Trail</div>
+          <div class="stat-value" style="color:var(--yellow)">${liveAuditCount}</div>
+          <div class="stat-sub"><a href="/audit" style="color:var(--accent)">View Trail →</a></div>
+        </div>
+        <div class="stat-card" style="border-left:3px solid var(--green)">
+          <div class="stat-label">Notifications</div>
+          <div class="stat-value" style="color:var(--green)">${liveNotifCount}</div>
+          <div class="stat-sub"><a href="/notifications" style="color:var(--accent)">Inbox →</a></div>
+        </div>
+        <div class="stat-card" style="border-left:3px solid ${liveAbacDenies > 0 ? 'var(--red)' : 'var(--green)'}">
+          <div class="stat-label">ABAC Denials</div>
+          <div class="stat-value" style="color:${liveAbacDenies > 0 ? 'var(--red)' : 'var(--green)'}">${liveAbacDenies}</div>
+          <div class="stat-sub"><a href="/audit/deny-log" style="color:var(--accent)">Deny Log →</a></div>
+        </div>
+      </div>
+
       ${statsHtml}
       <div class="grid-2">
         <div>
@@ -208,6 +297,41 @@ export function createDashboardRoute() {
           </tr>`).join('')}</tbody>
         </table>
       </div>` : ''}
+
+      <!-- P16: Recent Activity Feed + System Health -->
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">📋 Recent Activity Feed</div>
+            <a href="/audit" class="btn btn-ghost btn-sm">Full Audit Trail →</a>
+          </div>
+          ${activityFeedHtml}
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">🏥 System Health Summary</div>
+            <a href="/health-dashboard" class="btn btn-ghost btn-sm">Full Dashboard →</a>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            ${[
+              { label: 'Platform Version', value: '1.6.0-P16', color: 'var(--accent)' },
+              { label: 'Auth Status', value: isAuth ? 'Authenticated' : 'Guest', color: isAuth ? 'var(--green)' : 'var(--yellow)' },
+              { label: 'D1 Database', value: repo.isPersistent ? 'D1 Persistent' : 'In-Memory', color: repo.isPersistent ? 'var(--green)' : 'var(--yellow)' },
+              { label: 'Active Sessions', value: String(activeSessions.length), color: activeSessions.length > 0 ? 'var(--green)' : 'var(--text3)' },
+              { label: 'Pending Approvals', value: String(pendingApprovals.length), color: pendingApprovals.length > 0 ? 'var(--yellow)' : 'var(--green)' },
+              { label: 'Active Blockers', value: String(blockers.length), color: blockers.length > 0 ? 'var(--red)' : 'var(--green)' },
+            ].map(item => `
+              <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 10px;background:var(--bg3);border-radius:5px">
+                <span style="font-size:12px;color:var(--text3)">${item.label}</span>
+                <span style="font-size:12px;font-weight:600;color:${item.color}">${item.value}</span>
+              </div>`).join('')}
+            <div style="display:flex;gap:8px;margin-top:6px">
+              <a href="/metrics" class="btn btn-ghost btn-sm" style="flex:1;justify-content:center">📈 Metrics</a>
+              <a href="/search" class="btn btn-ghost btn-sm" style="flex:1;justify-content:center">🔍 Search</a>
+            </div>
+          </div>
+        </div>
+      </div>
       <div class="card">
         <div class="card-header">
           <div class="card-title">Governance Status (P2)</div>
@@ -225,7 +349,7 @@ export function createDashboardRoute() {
         </div>
       </div>`
 
-    return c.html(layout('Dashboard', content, '/dashboard', activeAlertCount))
+    return c.html(layout('Dashboard', content, '/dashboard', activeAlertCount, { notifCount: unreadNotifCount }))
   })
 
   return route

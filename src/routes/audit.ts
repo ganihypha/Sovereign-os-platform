@@ -526,6 +526,242 @@ export function createAuditRoute() {
   })
 
   // ============================================================
+  // GET /audit/search — P16: Full-text search within audit trail
+  // ============================================================
+  route.get('/search', async (c) => {
+    const isAuth = await isAuthenticated(c, c.env)
+    if (!isAuth) return c.redirect('/dashboard')
+
+    const q = (c.req.query('q') || '').trim()
+    const eventTypeFilter = c.req.query('event_type') || ''
+    let results: any[] = []
+    let searchTime = 0
+
+    if (q.length >= 2 && c.env.DB) {
+      const t0 = Date.now()
+      try {
+        const stmt = eventTypeFilter
+          ? `SELECT id, event_type, object_type, object_id, actor, tenant_id, payload_summary, surface, created_at
+             FROM audit_log_v2
+             WHERE (event_type LIKE ? OR actor LIKE ? OR payload_summary LIKE ? OR object_id LIKE ?)
+               AND event_type = ?
+             ORDER BY created_at DESC LIMIT 50`
+          : `SELECT id, event_type, object_type, object_id, actor, tenant_id, payload_summary, surface, created_at
+             FROM audit_log_v2
+             WHERE (event_type LIKE ? OR actor LIKE ? OR payload_summary LIKE ? OR object_id LIKE ?)
+             ORDER BY created_at DESC LIMIT 50`
+        const params = eventTypeFilter
+          ? [`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, eventTypeFilter]
+          : [`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`]
+        const rows = await c.env.DB.prepare(stmt).bind(...params).all<any>()
+        results = rows.results || []
+        searchTime = Date.now() - t0
+      } catch { results = []; searchTime = 0 }
+    }
+
+    function highlight(text: string, q: string): string {
+      if (!q || !text) return text || ''
+      const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      return text.replace(new RegExp(`(${escaped})`, 'gi'),
+        `<mark style="background:rgba(245,158,11,0.3);color:var(--yellow);border-radius:2px;padding:0 2px">$1</mark>`)
+    }
+
+    const rows = results.map(ev => `
+      <tr>
+        <td style="padding:8px 12px"><a href="/audit/${encodeURIComponent(ev.id)}" style="color:var(--accent);font-size:11px;font-family:monospace">${ev.id}</a></td>
+        <td style="padding:8px 12px;font-size:12px">${highlight(ev.event_type || '', q)}</td>
+        <td style="padding:8px 12px;font-size:11px;color:var(--text2)">${highlight(ev.actor || '—', q)}</td>
+        <td style="padding:8px 12px;font-size:11px;color:var(--text3)">${ev.tenant_id || '—'}</td>
+        <td style="padding:8px 12px;font-size:11px;color:var(--text3)">${highlight((ev.payload_summary || '').slice(0, 80), q)}</td>
+        <td style="padding:8px 12px;font-size:10px;color:var(--text3)">${(ev.created_at || '').slice(0,16)}</td>
+      </tr>
+    `).join('')
+
+    const content = `
+      <div style="max-width:1100px">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h1 style="font-size:20px;font-weight:700;margin:0 0 4px">🔍 Audit Trail Search</h1>
+            <p style="color:var(--text3);font-size:12px;margin:0">P16 — Full-text search within audit log</p>
+          </div>
+          <a href="/audit" class="btn btn-ghost btn-sm">← Audit Trail</a>
+        </div>
+
+        <form method="GET" action="/audit/search" style="display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap">
+          <input name="q" value="${q.replace(/"/g,'&quot;')}" placeholder="Search event types, actors, payloads, object IDs..." autofocus
+            style="flex:1;min-width:200px;background:var(--bg2);border:1px solid var(--border);border-radius:7px;padding:9px 14px;color:var(--text);font-size:13px;outline:none">
+          <select name="event_type" style="background:var(--bg2);border:1px solid var(--border);border-radius:7px;padding:9px 12px;color:var(--text);font-size:12px;outline:none">
+            <option value="">All event types</option>
+            ${['intent.created','approval.approved','approval.rejected','abac.access_denied','webhook.delivery_failed','event.archived','federation.created','anomaly.detected'].map(t =>
+              `<option value="${t}"${eventTypeFilter===t?' selected':''}>${t}</option>`
+            ).join('')}
+          </select>
+          <button type="submit" class="btn btn-primary">Search</button>
+          ${q ? `<a href="/audit/search" class="btn btn-ghost">Clear</a>` : ''}
+        </form>
+
+        ${q.length >= 2 ? `
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;font-size:12px;flex-wrap:wrap">
+            <span style="color:var(--text2)">${results.length} result${results.length !== 1 ? 's' : ''} for "<strong style="color:var(--text)">${q}</strong>"</span>
+            <span style="color:var(--text3)">(${searchTime}ms)</span>
+            ${eventTypeFilter ? `<span class="badge badge-orange">${eventTypeFilter}</span>` : ''}
+          </div>
+        ` : ''}
+
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:auto">
+          ${q.length < 2
+            ? `<div style="padding:40px;text-align:center;color:var(--text3);font-size:13px">Enter at least 2 characters to search the audit trail.</div>`
+            : results.length === 0
+            ? `<div style="padding:40px;text-align:center;color:var(--text3);font-size:13px">No audit events matched "<strong style="color:var(--text)">${q}</strong>".</div>`
+            : `<table style="width:100%;border-collapse:collapse;min-width:700px">
+                <thead><tr style="background:var(--bg3)">
+                  <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text3)">ID</th>
+                  <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text3)">Event Type</th>
+                  <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text3)">Actor</th>
+                  <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text3)">Tenant</th>
+                  <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text3)">Summary</th>
+                  <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text3)">Timestamp</th>
+                </tr></thead>
+                <tbody>${rows}</tbody>
+              </table>`
+          }
+        </div>
+      </div>
+    `
+
+    return c.html(layout('Audit Search — P16', content, '/audit', 0, {
+      breadcrumbs: [{ label: 'Audit Trail', href: '/audit' }, { label: 'Search' }]
+    }))
+  })
+
+  // ============================================================
+  // GET /audit/:id — P16: Audit Event Detail View
+  // ============================================================
+  route.get('/:id', async (c) => {
+    const isAuth = await isAuthenticated(c, c.env)
+    if (!isAuth) return c.redirect('/dashboard')
+
+    const id = c.req.param('id')
+    // Avoid conflict with named sub-paths
+    if (['deny-log', 'export-jobs', 'verify', 'search'].includes(id)) {
+      return c.redirect(`/audit/${id}`)
+    }
+
+    const db = c.env.DB
+    if (!db) return c.html(layout('Audit Event Detail', '<p style="color:var(--text3)">DB not available.</p>', '/audit'))
+
+    let event: any = null
+    let hashOk = false
+    try {
+      event = await db.prepare('SELECT * FROM audit_log_v2 WHERE id = ?').bind(id).first<any>()
+      if (event) {
+        hashOk = await verifyAuditHash(event as AuditLogV2)
+      }
+    } catch { event = null }
+
+    if (!event) {
+      return c.html(layout('Audit Event Not Found', `
+        <div style="padding:40px;text-align:center">
+          <div style="font-size:48px;margin-bottom:16px">🔏</div>
+          <h2 style="color:var(--text);margin-bottom:8px">Event Not Found</h2>
+          <p style="color:var(--text3);margin-bottom:20px">Audit event <code style="color:var(--accent)">${id}</code> not found in the audit trail.</p>
+          <a href="/audit" class="btn btn-ghost">← Back to Audit Trail</a>
+        </div>
+      `, '/audit'))
+    }
+
+    // Parse payload if JSON
+    let payloadParsed: any = null
+    try {
+      if (event.payload_summary && (event.payload_summary.startsWith('{') || event.payload_summary.startsWith('['))) {
+        payloadParsed = JSON.parse(event.payload_summary)
+      }
+    } catch { payloadParsed = null }
+
+    const fields = [
+      { label: 'Event ID', value: event.id, mono: true },
+      { label: 'Event Type', value: event.event_type, color: '#4f8ef7' },
+      { label: 'Object Type', value: event.object_type || '—' },
+      { label: 'Object ID', value: event.object_id || '—', mono: true },
+      { label: 'Actor', value: event.actor || '—' },
+      { label: 'Tenant ID', value: event.tenant_id || '—' },
+      { label: 'Surface', value: event.surface || '—' },
+      { label: 'Created At', value: event.created_at || '—', mono: true },
+    ]
+
+    const content = `
+      <div style="max-width:900px">
+        <!-- Header -->
+        <div class="flex items-center justify-between mb-4" style="flex-wrap:wrap;gap:12px">
+          <div>
+            <h1 style="font-size:20px;font-weight:700;margin:0 0 4px">🔏 Audit Event Detail</h1>
+            <p style="color:var(--text3);font-size:12px;margin:0">P16 — Full event payload viewer with hash verification</p>
+          </div>
+          <div class="flex gap-2">
+            <a href="/audit" class="btn btn-ghost btn-sm">← Audit Trail</a>
+            <a href="/audit/search" class="btn btn-ghost btn-sm">🔍 Search</a>
+          </div>
+        </div>
+
+        <!-- Hash verification banner -->
+        <div style="padding:12px 16px;border-radius:8px;margin-bottom:20px;${hashOk
+          ? 'background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.25)'
+          : 'background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25)'}">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="font-size:18px">${hashOk ? '✅' : '⚠️'}</span>
+            <div>
+              <div style="font-size:13px;font-weight:600;color:${hashOk ? 'var(--green)' : 'var(--red)'}">
+                ${hashOk ? 'Hash Verified — Event Integrity Intact' : 'HASH MISMATCH — Potential Tampering Detected'}
+              </div>
+              <div style="font-size:11px;color:var(--text3);font-family:monospace;margin-top:2px">${event.event_hash}</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Event fields -->
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-header"><span class="card-title">Event Fields</span></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--border);border-radius:6px;overflow:hidden">
+            ${fields.map((f, i) => `
+              <div style="padding:12px 16px;border-bottom:${i < fields.length - 2 ? '1px solid var(--border)' : 'none'};${i % 2 === 0 ? 'border-right:1px solid var(--border)' : ''}">
+                <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">${f.label}</div>
+                <div style="font-size:13px;${f.mono ? 'font-family:monospace;' : ''}${f.color ? 'color:' + f.color + ';font-weight:600' : 'color:var(--text)'}">${f.value}</div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+
+        <!-- Payload -->
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-header"><span class="card-title">Event Payload / Summary</span></div>
+          ${payloadParsed
+            ? `<pre style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:16px;font-family:monospace;font-size:11px;color:var(--text2);overflow:auto;white-space:pre-wrap">${JSON.stringify(payloadParsed, null, 2)}</pre>`
+            : `<div style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:14px;font-family:monospace;font-size:12px;color:var(--text2);word-break:break-all">${event.payload_summary || '<span style="color:var(--text3)">No payload summary</span>'}</div>`
+          }
+        </div>
+
+        <!-- Hash verification detail -->
+        <div class="card">
+          <div class="card-header"><span class="card-title">Hash Verification Detail</span></div>
+          <div style="font-size:11px;color:var(--text3);font-family:monospace;display:flex;flex-direction:column;gap:6px">
+            <div><span style="color:var(--text2)">Algorithm:</span> SHA-256</div>
+            <div><span style="color:var(--text2)">Input:</span> event_type | object_id | actor | created_at</div>
+            <div><span style="color:var(--text2)">Stored hash:</span> <span style="color:var(--accent)">${event.event_hash}</span></div>
+            <div><span style="color:var(--text2)">Status:</span> <span style="color:${hashOk ? 'var(--green)' : 'var(--red)'}">${hashOk ? '✓ VALID' : '✗ MISMATCH'}</span></div>
+          </div>
+          <div style="margin-top:12px">
+            <a href="/audit/verify/${event.id}" class="btn btn-ghost btn-sm">Re-verify via API →</a>
+          </div>
+        </div>
+      </div>
+    `
+
+    return c.html(layout(`Audit: ${event.event_type}`, content, '/audit', 0, {
+      breadcrumbs: [{ label: 'Audit Trail', href: '/audit' }, { label: event.event_type }]
+    }))
+  })
+
+  // ============================================================
   // GET /audit/verify/:id — Verify single event hash
   // ============================================================
   route.get('/verify/:id', async (c) => {

@@ -351,6 +351,13 @@ app.get('/status', async (c) => {
         docs: 'active',            // P11 — /docs
         policies_simulate: 'active', // P11 — /policies/simulate
         report_subscriptions: 'active', // P12 — /reports/subscriptions
+        search: 'active',          // P15 — /search
+        metrics: 'active',         // P16 — /metrics
+        audit_detail: 'active',    // P16 — /audit/:id
+        audit_search: 'active',    // P16 — /audit/search
+        notification_bell: 'active', // P16 — bell badge in header
+        dark_mode: 'active',       // P16 — localStorage dark mode toggle
+        collapsible_sidebar: 'active', // P16 — collapsible nav groups
         abac_middleware: 'active',       // P12 — ABAC HTTP enforcement
         webhook_queue: 'active',         // P12 — webhook delivery queue
         api_key_permissions: 'active',   // P12 — API key scoped permissions
