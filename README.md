@@ -14,15 +14,15 @@ requirements, and a stable canon layer that survives sessions.
 
 | Item | Value |
 |------|-------|
-| **Version** | `1.5.0-P15` |
-| **Phase** | P15 — Audit Export Jobs, batch_size UI, Notification Rules, Audit Event Writes, Report Delivery Status, Search |
+| **Version** | `1.6.0-P16` |
+| **Phase** | P16 — Platform UX Overhaul, Header Search, Dark Mode, Collapsible Sidebar, /metrics, /audit/:id, /search Enhancements, /dashboard Live Stats |
 | **Status** | ✅ LIVE-VERIFIED |
 | **Production** | https://sovereign-os-platform.pages.dev |
 | **GitHub** | https://github.com/ganihypha/Sovereign-os-platform |
-| **Latest Commit** | `2e21911` |
+| **Latest Commit** | `ebfe61e` |
 | **D1 Database** | `sovereign-os-production` (f6067325-9ea4-44bc-a5fd-e3d19367e657) |
-| **Migrations Applied** | 0001 → 0015 |
-| **Active Surfaces** | 64 total (58 P0-P14 + 6 P15 enhancements) |
+| **Migrations Applied** | 0001 → 0016 |
+| **Active Surfaces** | 71 total (64 P0-P15 + 7 P16 new/enhanced) |
 | **KV Namespace** | RATE_LIMITER_KV (b36f941ace3445d68d335d8cebc0803a) |
 
 ---
@@ -53,6 +53,11 @@ requirements, and a stable canon layer that survives sessions.
 | `https://sovereign-os-platform.pages.dev/events` | Unified Event Bus (P11) |
 | `https://sovereign-os-platform.pages.dev/docs` | Developer Documentation (P11) |
 | `https://sovereign-os-platform.pages.dev/policies/simulate` | ABAC Dry-Run Simulate (P11) |
+| `https://sovereign-os-platform.pages.dev/metrics` | Platform Metrics KPIs + Charts (P16) |
+| `https://sovereign-os-platform.pages.dev/metrics/api` | Metrics JSON API (P16) |
+| `https://sovereign-os-platform.pages.dev/audit/:id` | Audit Event Detail View (P16) |
+| `https://sovereign-os-platform.pages.dev/audit/search` | Audit Full-Text Search (P16) |
+| `https://sovereign-os-platform.pages.dev/search` | Platform-Wide Unified Search (P15+P16) |
 
 ---
 
