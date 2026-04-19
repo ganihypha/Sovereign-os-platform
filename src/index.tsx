@@ -1,6 +1,6 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — MAIN ENTRY (P15 — Audit Export Jobs, batch_size UI, Notification Rules, Audit Event Writes, Report Delivery, Search)
-// Version: 1.5.0-P15
+// SOVEREIGN OS PLATFORM — MAIN ENTRY (P16 — Platform UX Overhaul, Search Enhancements, Dashboard Live Stats, Audit Detail View, Metrics, Notification Bell)
+// Version: 1.6.0-P16
 // Platform: Cloudflare Pages + Workers
 // Hono Framework — Edge-first
 // ============================================================
@@ -72,6 +72,9 @@ import { createReportSubscriptionsRoute } from './routes/reportSubscriptions'
 
 // Route import — P15 new surfaces
 import { createSearchRoute } from './routes/search'
+
+// Route imports — P16 new surfaces
+import { createMetricsRoute } from './routes/metrics'
 
 export type Env = {
   DB?: D1Database
@@ -214,6 +217,9 @@ app.route('/reports/subscriptions', createReportSubscriptionsRoute())
 // P15: Platform-wide unified search
 app.route('/search', createSearchRoute())
 
+// P16: Platform metrics surface
+app.route('/metrics', createMetricsRoute())
+
 // P6: Tenant namespace path routing — /t/:slug/*
 // P7: Injects tenant branding CSS into routing context
 // P14: Tenant ABAC enforcement for mutation paths
@@ -276,8 +282,8 @@ app.get('/health', (c) => {
   return c.json({
     status: 'ok',
     platform: 'Sovereign OS Platform',
-    version: '1.5.0-P15',
-    phase: 'P15 — Audit Export Jobs, batch_size UI, Notification Rules, Audit Event Writes, Report Delivery Status, Search',
+    version: '1.6.0-P16',
+    phase: 'P16 — Platform UX Overhaul, Header Search, Dark Mode, Metrics, Audit Detail, Notification Bell, Dashboard Live Stats',
     persistence: repo.isPersistent ? 'd1' : 'in-memory',
     auth_configured: !!c.env.PLATFORM_API_KEY,
     kv_rate_limiter: !!c.env.RATE_LIMITER_KV ? 'kv-enforced' : 'in-memory-partial',
@@ -301,8 +307,8 @@ app.get('/status', async (c) => {
     return c.json({
       status: 'operational',
       platform: 'Sovereign OS Platform',
-      version: '1.5.0-P15',
-      phase: 'P15 — Audit Export Jobs, batch_size UI, Notification Rules, Audit Event Writes, Report Delivery Status, Search',
+      version: '1.6.0-P16',
+      phase: 'P16 — Platform UX Overhaul, Header Search, Dark Mode, Metrics, Audit Detail, Notification Bell, Dashboard Live Stats',
       persistence: repo.isPersistent ? 'd1-persistent' : 'in-memory-ephemeral',
       auth_configured: !!c.env.PLATFORM_API_KEY,
       kv_rate_limiter: !!c.env.RATE_LIMITER_KV ? 'kv-enforced' : 'in-memory-partial',
@@ -382,7 +388,7 @@ app.get('/status', async (c) => {
     return c.json({
       status: 'degraded',
       platform: 'Sovereign OS Platform',
-      version: '1.5.0-P15',
+      version: '1.6.0-P16',
       error: 'Could not read platform state',
       persistence: 'unknown',
       timestamp: new Date().toISOString(),
