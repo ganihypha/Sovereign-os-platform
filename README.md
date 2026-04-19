@@ -14,15 +14,15 @@ requirements, and a stable canon layer that survives sessions.
 
 | Item | Value |
 |------|-------|
-| **Version** | `1.7.0-P17` |
-| **Phase** | P17 — Notification Preferences, Bulk Ops, Audit Pagination, Metrics Snapshots, Admin Panel, Search Analytics |
+| **Version** | `1.8.0-P18` |
+| **Phase** | P18 — UI/UX Upgrade, Nav Reorganization, Workflow History, Bug Fixes |
 | **Status** | ✅ LIVE-VERIFIED |
 | **Production** | https://sovereign-os-platform.pages.dev |
 | **GitHub** | https://github.com/ganihypha/Sovereign-os-platform |
-| **Latest Commit** | `a846d00` |
+| **Latest Commit** | `2aab7ca` |
 | **D1 Database** | `sovereign-os-production` (f6067325-9ea4-44bc-a5fd-e3d19367e657) |
-| **Migrations Applied** | 0001 → 0017 |
-| **Active Surfaces** | 83 total (71 P0-P16 + 12 P17 new/enhanced) |
+| **Migrations Applied** | 0001 → 0018 |
+| **Active Surfaces** | 90 total (83 P0-P17 + 7 P18 new/enhanced) |
 | **KV Namespace** | RATE_LIMITER_KV (b36f941ace3445d68d335d8cebc0803a) |
 
 ---
