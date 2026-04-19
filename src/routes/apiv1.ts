@@ -45,7 +45,7 @@ export function createApiV1Route() {
       status: 'ok',
       platform: 'Sovereign OS Platform',
       api: 'Public API Gateway v1',
-      version: '1.8.0-P18',
+      version: '1.9.0-P19',
       endpoints: [
         { path: '/api/v1/health', auth: 'none', description: 'API health check' },
         { path: '/api/v1/docs', auth: 'none', description: 'API documentation' },
@@ -61,14 +61,15 @@ export function createApiV1Route() {
     })
   })
 
-  // GET /api/v1/health — Public API health check
+  // GET /api/v1/health — Public API health check (P19: version locked to current platform)
   app.get('/health', (c) => {
     return c.json({
       status: 'ok',
       platform: 'Sovereign OS Platform',
-      version: '1.8.0-P18',
-      phase: 'P18 — UI/UX Upgrade, Nav Reorganization, Workflow History, Performance',
+      version: '1.9.0-P19',
+      phase: 'P19 — Platform Hardening, Email Delivery, Session Tracking, Changelog',
       api_version: 'v1',
+      email_delivery: !!(c.env.RESEND_API_KEY) ? 'configured' : 'not-configured',
       timestamp: new Date().toISOString(),
     })
   })

@@ -9,6 +9,7 @@ import { triggerConnectorWebhooks } from '../lib/webhookDelivery'
 import type { Env } from '../index'
 import { abacGuardApprove } from '../lib/abacMiddleware'
 import { emitEvent } from '../lib/eventBusService'
+import { emailTier3ApprovalRequested, emailExecutionBlocked } from '../lib/emailService'
 
 export function createApiRoute() {
   const route = new Hono<{ Bindings: Env }>()
@@ -101,6 +102,18 @@ export function createApiRoute() {
         payload: { action_type: String(body.action_type || ''), tier: String(body.approval_tier || '1') },
         severity: 'info'
       }).catch(() => {})
+    }
+    // P19: Email notification for Tier 3 approvals (fire-and-catch — never blocks)
+    const approvalTier = parseInt(String(body.approval_tier || '1'))
+    if (approvalTier >= 3) {
+      const approvalId = `apr-${Date.now()}`
+      emailTier3ApprovalRequested(
+        { RESEND_API_KEY: c.env.RESEND_API_KEY, DB: c.env.DB },
+        'platform-admin@sovereign-os.platform',
+        approvalId,
+        String(body.action_type || 'Unknown action'),
+        String(body.requested_by || 'Operator')
+      ).catch(() => {})
     }
     return c.redirect('/approvals')
   })
@@ -411,6 +424,18 @@ export function createApiRoute() {
         status,
         blocked_reason: status === 'blocked' ? String(body.blocked_reason || '').slice(0, 100) : undefined,
       }).catch(() => { /* webhook failure must not affect execution flow */ })
+    }
+    // P19: Email notification when execution is blocked (fire-and-catch — never blocks)
+    if (status === 'blocked') {
+      const taskTitle = entry?.title || `Task ${id}`
+      const blockReason = String(body.blocked_reason || 'No reason provided').slice(0, 200)
+      emailExecutionBlocked(
+        { RESEND_API_KEY: c.env.RESEND_API_KEY, DB: c.env.DB },
+        'platform-admin@sovereign-os.platform',
+        id,
+        taskTitle,
+        blockReason
+      ).catch(() => {})
     }
     return c.json({ ok: true, id, status })
   })
