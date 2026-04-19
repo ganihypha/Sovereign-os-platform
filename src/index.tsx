@@ -76,6 +76,9 @@ import { createSearchRoute } from './routes/search'
 // Route imports — P16 new surfaces
 import { createMetricsRoute } from './routes/metrics'
 
+// Route imports — P17 new surfaces
+import { createAdminRoute } from './routes/admin'
+
 export type Env = {
   DB?: D1Database
   RATE_LIMITER_KV?: KVNamespace   // P6: KV-backed distributed rate limiter (optional — falls back to in-memory)
@@ -220,6 +223,9 @@ app.route('/search', createSearchRoute())
 // P16: Platform metrics surface
 app.route('/metrics', createMetricsRoute())
 
+// P17: Platform admin panel
+app.route('/admin', createAdminRoute())
+
 // P6: Tenant namespace path routing — /t/:slug/*
 // P7: Injects tenant branding CSS into routing context
 // P14: Tenant ABAC enforcement for mutation paths
@@ -282,8 +288,8 @@ app.get('/health', (c) => {
   return c.json({
     status: 'ok',
     platform: 'Sovereign OS Platform',
-    version: '1.6.0-P16',
-    phase: 'P16 — Platform UX Overhaul, Header Search, Dark Mode, Metrics, Audit Detail, Notification Bell, Dashboard Live Stats',
+    version: '1.7.0-P17',
+    phase: 'P17 — Notification Preferences, Bulk Ops, Audit Pagination, Metrics Snapshots, Admin Panel, Search Analytics',
     persistence: repo.isPersistent ? 'd1' : 'in-memory',
     auth_configured: !!c.env.PLATFORM_API_KEY,
     kv_rate_limiter: !!c.env.RATE_LIMITER_KV ? 'kv-enforced' : 'in-memory-partial',
@@ -307,8 +313,8 @@ app.get('/status', async (c) => {
     return c.json({
       status: 'operational',
       platform: 'Sovereign OS Platform',
-      version: '1.6.0-P16',
-      phase: 'P16 — Platform UX Overhaul, Header Search, Dark Mode, Metrics, Audit Detail, Notification Bell, Dashboard Live Stats',
+      version: '1.7.0-P17',
+      phase: 'P17 — Notification Preferences, Bulk Ops, Audit Pagination, Metrics Snapshots, Admin Panel, Search Analytics',
       persistence: repo.isPersistent ? 'd1-persistent' : 'in-memory-ephemeral',
       auth_configured: !!c.env.PLATFORM_API_KEY,
       kv_rate_limiter: !!c.env.RATE_LIMITER_KV ? 'kv-enforced' : 'in-memory-partial',
@@ -374,6 +380,19 @@ app.get('/status', async (c) => {
         health_dashboard_p13: 'active',  // P13 — ABAC/webhook/subscription stats
         tenant_abac: 'active',           // P13 — tenant-scoped ABAC policies
         policies_simulate_ui: 'active',  // P13 — /policies#simulate interactive form
+        // P17 new surfaces
+        notification_preferences: 'active', // P17 — /notifications/preferences
+        notification_bulk_ops: 'active',    // P17 — /notifications/bulk
+        audit_pagination_deeplinks: 'active', // P17 — /audit?page=N deep links
+        metrics_snapshots: 'active',        // P17 — /metrics/snapshots
+        metrics_autorefresh: 'active',      // P17 — auto-refresh toggle
+        admin_panel: 'active',              // P17 — /admin
+        admin_settings: 'active',           // P17 — /admin/settings
+        admin_sessions: 'active',           // P17 — /admin/sessions
+        admin_api_key_rotation: 'active',   // P17 — /admin/api-keys
+        search_analytics: 'active',         // P17 — /search/analytics
+        search_bookmarks: 'active',         // P17 — localStorage bookmarks
+        audit_search_daterange: 'active',   // P17 — /audit/search date+sort filters
       },
       counts: {
         sessions: sessions.length,

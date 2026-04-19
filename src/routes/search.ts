@@ -340,9 +340,31 @@ export function createSearchRoute() {
         }
         function updateRecentSuggestions() { /* placeholder */ }
 
-        // Save current search to recent
-        if (currentQ && currentQ.length >= 2) saveRecent(currentQ)
+        // Save current search to recent + P17: log analytics
+        if (currentQ && currentQ.length >= 2) {
+          saveRecent(currentQ)
+          // Bookmark feature
+          const BOOKMARKS_KEY = 'sovereign-search-bookmarks'
+          function getBookmarks() { try { return JSON.parse(localStorage.getItem(BOOKMARKS_KEY) || '[]') } catch { return [] } }
+          window._searchBookmarks = getBookmarks()
+        }
         renderRecentSearches()
+
+        // P17: Bookmark current search
+        function bookmarkSearch() {
+          if (!currentQ || currentQ.length < 2) return;
+          const BOOKMARKS_KEY = 'sovereign-search-bookmarks'
+          let bm = [];
+          try { bm = JSON.parse(localStorage.getItem(BOOKMARKS_KEY) || '[]') } catch { bm = [] }
+          const entry = { q: currentQ, scope: ${JSON.stringify(scope)}, savedAt: new Date().toISOString() };
+          if (!bm.find(b => b.q === currentQ)) {
+            bm.unshift(entry); bm = bm.slice(0, 20);
+            try { localStorage.setItem(BOOKMARKS_KEY, JSON.stringify(bm)) } catch {}
+            if (typeof showToast === 'function') showToast('Search Saved', '"' + currentQ + '" added to bookmarks', 'success');
+          } else {
+            if (typeof showToast === 'function') showToast('Already Saved', '"' + currentQ + '" is already bookmarked', 'info');
+          }
+        }
 
         // Keyboard shortcut: Esc clears search
         document.getElementById('search-main-input')?.addEventListener('keydown', function(e) {
@@ -351,7 +373,7 @@ export function createSearchRoute() {
       </script>
     `
 
-    return c.html(layout('Platform Search — P15+P16', content, '/search', 0, {
+    return c.html(layout('Platform Search — P15+P16+P17', content, '/search', 0, {
       breadcrumbs: [{ label: 'Search' }]
     }))
   })
@@ -372,6 +394,17 @@ export function createSearchRoute() {
       searchConnectors(c.env.DB, q),
     ])
 
+      // P17: Save analytics to D1 (non-blocking)
+      if (c.env.DB && q.length >= 2) {
+        const t0 = Date.now()
+        const total = intents.length + auditEvents.length + notifications.length + tenants.length + workflows.length + policies.length + connectors.length
+        const duration = Date.now() - t0
+        c.env.DB.prepare(
+          `INSERT INTO search_analytics (query_term, scope, result_count, search_duration_ms)
+           VALUES (?, ?, ?, ?)`
+        ).bind(q, 'all', total, duration).run().catch(() => {})
+      }
+
     return c.json({
       q,
       total: intents.length + auditEvents.length + notifications.length + tenants.length + workflows.length + policies.length + connectors.length,
@@ -385,6 +418,100 @@ export function createSearchRoute() {
         connectors:    connectors.map(({ _type, _url, _label, ...r }) => r),
       }
     })
+  })
+
+  // GET /search/analytics — P17: Search analytics (most searched terms)
+  route.get('/analytics', async (c) => {
+    const db = c.env.DB
+    let topTerms: any[] = []
+    let recentSearches: any[] = []
+    let totalSearches = 0
+
+    if (db) {
+      try {
+        const cnt = await db.prepare(`SELECT COUNT(*) as n FROM search_analytics`).first<{ n: number }>()
+        totalSearches = cnt?.n || 0
+
+        const top = await db.prepare(
+          `SELECT query_term, COUNT(*) as count, AVG(result_count) as avg_results
+           FROM search_analytics
+           GROUP BY query_term ORDER BY count DESC LIMIT 20`
+        ).all<any>()
+        topTerms = top.results || []
+
+        const recent = await db.prepare(
+          `SELECT query_term, scope, result_count, searched_at
+           FROM search_analytics ORDER BY searched_at DESC LIMIT 30`
+        ).all<any>()
+        recentSearches = recent.results || []
+      } catch { /* non-blocking */ }
+    }
+
+    const content = `
+      <div class="page-header" style="margin-bottom:24px">
+        <div>
+          <h1 style="font-size:20px;font-weight:700;color:var(--text);margin:0">📊 Search Analytics</h1>
+          <p style="color:var(--text2);font-size:12px;margin:4px 0 0">P17 — Most searched terms and search activity log</p>
+        </div>
+        <a href="/search" style="background:var(--bg2);color:var(--text2);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:11px;text-decoration:none">← Search</a>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:12px;margin-bottom:24px">
+        ${[
+          { label: 'Total Searches', val: totalSearches, color: '#4f8ef7' },
+          { label: 'Unique Terms', val: topTerms.length, color: '#a855f7' },
+          { label: 'Recent (last 30)', val: recentSearches.length, color: '#22c55e' },
+        ].map(s => `
+          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px">
+            <div style="font-size:10px;color:var(--text3);text-transform:uppercase;margin-bottom:4px">${s.label}</div>
+            <div style="font-size:22px;font-weight:700;color:${s.color}">${s.val}</div>
+          </div>
+        `).join('')}
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
+          <div style="padding:12px 16px;border-bottom:1px solid var(--border);font-weight:600;font-size:13px">Top Searched Terms</div>
+          ${topTerms.length === 0
+            ? `<div style="padding:30px;text-align:center;color:var(--text3);font-size:12px">No search data yet. Searches are logged as users search the platform.</div>`
+            : `<table style="width:100%;border-collapse:collapse">
+                <thead><tr style="background:var(--bg3)">
+                  ${['Term','Searches','Avg Results'].map(h => `<th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text3);font-weight:500">${h}</th>`).join('')}
+                </tr></thead>
+                <tbody>
+                  ${topTerms.map(t => `<tr style="border-bottom:1px solid var(--border)">
+                    <td style="padding:8px 12px"><a href="/search?q=${encodeURIComponent(t.query_term)}" style="color:var(--accent);font-size:12px;text-decoration:none">${t.query_term}</a></td>
+                    <td style="padding:8px 12px;font-size:12px;font-weight:600;color:var(--text)">${t.count}</td>
+                    <td style="padding:8px 12px;font-size:11px;color:var(--text3)">${Math.round(t.avg_results || 0)}</td>
+                  </tr>`).join('')}
+                </tbody>
+               </table>`
+          }
+        </div>
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
+          <div style="padding:12px 16px;border-bottom:1px solid var(--border);font-weight:600;font-size:13px">Recent Searches</div>
+          ${recentSearches.length === 0
+            ? `<div style="padding:30px;text-align:center;color:var(--text3);font-size:12px">No searches logged yet.</div>`
+            : `<table style="width:100%;border-collapse:collapse">
+                <thead><tr style="background:var(--bg3)">
+                  ${['Term','Scope','Results','At'].map(h => `<th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text3);font-weight:500">${h}</th>`).join('')}
+                </tr></thead>
+                <tbody>
+                  ${recentSearches.map(s => `<tr style="border-bottom:1px solid var(--border)">
+                    <td style="padding:8px 12px"><a href="/search?q=${encodeURIComponent(s.query_term)}" style="color:var(--accent);font-size:11px;text-decoration:none">${s.query_term}</a></td>
+                    <td style="padding:8px 12px;font-size:10px;color:var(--text3)">${s.scope}</td>
+                    <td style="padding:8px 12px;font-size:11px;color:var(--text2)">${s.result_count}</td>
+                    <td style="padding:8px 12px;font-size:10px;color:var(--text3)">${(s.searched_at || '').slice(0,16)}</td>
+                  </tr>`).join('')}
+                </tbody>
+               </table>`
+          }
+        </div>
+      </div>
+    `
+    return c.html(layout('Search Analytics — P17', content, '/search', 0, {
+      breadcrumbs: [{ label: 'Search', href: '/search' }, { label: 'Analytics' }]
+    }))
   })
 
   return route

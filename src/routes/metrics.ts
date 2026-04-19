@@ -189,12 +189,15 @@ export function createMetricsRoute() {
         <div class="flex items-center justify-between mb-4" style="flex-wrap:wrap;gap:12px">
           <div>
             <h1 style="font-size:20px;font-weight:700;margin:0 0 4px">📈 Platform Metrics</h1>
-            <p style="color:var(--text3);font-size:12px;margin:0">P16 — Platform-wide KPIs and trend analytics</p>
+            <p style="color:var(--text3);font-size:12px;margin:0">P16+P17 — Platform-wide KPIs, trend analytics, auto-refresh, snapshots</p>
           </div>
-          <div class="flex gap-2" style="flex-wrap:wrap">
+          <div class="flex gap-2" style="flex-wrap:wrap;align-items:center">
             <a href="/metrics?period=7" class="btn ${period === 7 ? 'btn-primary' : 'btn-ghost'} btn-sm">7 Days</a>
             <a href="/metrics?period=30" class="btn ${period === 30 ? 'btn-primary' : 'btn-ghost'} btn-sm">30 Days</a>
-            <a href="/metrics/export" class="btn btn-ghost btn-sm">⬇ Export CSV</a>
+            <button id="auto-refresh-btn" onclick="toggleAutoRefresh()" class="btn btn-ghost btn-sm" style="min-width:120px">⏱ Auto-Refresh: OFF</button>
+            <button onclick="saveSnapshot()" id="snapshot-btn" class="btn btn-ghost btn-sm">📸 Save Snapshot</button>
+            <a href="/metrics/snapshots" class="btn btn-ghost btn-sm">🗂 History</a>
+            <a href="/metrics/export" class="btn btn-ghost btn-sm">⬇ CSV</a>
             <a href="/metrics/api" class="btn btn-ghost btn-sm">{ } JSON</a>
           </div>
         </div>
@@ -262,6 +265,10 @@ export function createMetricsRoute() {
         </div>
       </div>
 
+      <div id="auto-refresh-status" style="display:none;padding:8px 16px;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.2);border-radius:6px;font-size:11px;color:#22c55e;margin-top:8px">
+        🟢 Auto-refresh active — updating every 30s. <span id="next-refresh-countdown">30s</span> until next update.
+      </div>
+
       <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
       <script>
         const isDark = document.getElementById('html-root').getAttribute('data-theme') !== 'light'
@@ -313,6 +320,58 @@ export function createMetricsRoute() {
           }
         })
 
+        // P17: Auto-refresh logic
+        let autoRefreshTimer = null;
+        let countdown = 30;
+        let countdownTimer = null;
+
+        function toggleAutoRefresh() {
+          const btn = document.getElementById('auto-refresh-btn');
+          const status = document.getElementById('auto-refresh-status');
+          if (autoRefreshTimer) {
+            clearInterval(autoRefreshTimer);
+            clearInterval(countdownTimer);
+            autoRefreshTimer = null;
+            btn.textContent = '⏱ Auto-Refresh: OFF';
+            btn.style.color = '';
+            status.style.display = 'none';
+          } else {
+            autoRefreshTimer = setInterval(() => { location.reload(); }, 30000);
+            countdown = 30;
+            countdownTimer = setInterval(() => {
+              countdown--;
+              const el = document.getElementById('next-refresh-countdown');
+              if (el) el.textContent = countdown + 's';
+              if (countdown <= 0) countdown = 30;
+            }, 1000);
+            btn.textContent = '⏱ Auto-Refresh: ON';
+            btn.style.color = '#22c55e';
+            status.style.display = 'block';
+          }
+        }
+
+        // P17: Save snapshot
+        async function saveSnapshot() {
+          const btn = document.getElementById('snapshot-btn');
+          btn.textContent = '⏳ Saving...';
+          btn.disabled = true;
+          try {
+            const res = await fetch('/metrics/snapshots', { method: 'POST' });
+            const data = await res.json();
+            if (data.success) {
+              if (typeof showToast === 'function') showToast('Snapshot Saved', 'Metrics snapshot stored to history', 'success');
+              btn.textContent = '✓ Saved!';
+              setTimeout(() => { btn.textContent = '📸 Save Snapshot'; btn.disabled = false; }, 2000);
+            } else {
+              btn.textContent = '✗ Failed';
+              setTimeout(() => { btn.textContent = '📸 Save Snapshot'; btn.disabled = false; }, 2000);
+            }
+          } catch(e) {
+            btn.textContent = '✗ Error';
+            setTimeout(() => { btn.textContent = '📸 Save Snapshot'; btn.disabled = false; }, 2000);
+          }
+        }
+
         // ABAC + Notifications chart
         new Chart(document.getElementById('chart-abac-notifs'), {
           type: 'bar',
@@ -358,6 +417,84 @@ export function createMetricsRoute() {
     if (!c.env.DB) return c.json({ error: 'DB not available' }, 503)
     const snap = await getMetricsSnapshot(c.env.DB)
     return c.json({ status: 'ok', metrics: snap })
+  })
+
+  // GET /metrics/snapshots — Snapshot history page
+  route.get('/snapshots', async (c) => {
+    const db = c.env.DB
+    let snapshots: any[] = []
+    if (db) {
+      try {
+        const rows = await db.prepare(
+          `SELECT id, snapshot_json, period, created_at FROM platform_metrics_snapshots ORDER BY created_at DESC LIMIT 50`
+        ).all<any>()
+        snapshots = rows.results || []
+      } catch { /* non-blocking */ }
+    }
+
+    const snapshotRows = snapshots.map(s => {
+      let parsed: any = {}
+      try { parsed = JSON.parse(s.snapshot_json || '{}') } catch { /* ignore */ }
+      return `
+        <tr style="border-bottom:1px solid var(--border)">
+          <td style="padding:8px 12px;font-size:10px;color:var(--text3);font-family:monospace">${s.id}</td>
+          <td style="padding:8px 12px;font-size:11px;color:var(--text2)">${s.period || '—'}</td>
+          <td style="padding:8px 12px;font-size:11px;color:var(--accent)">${parsed.events?.total ?? '—'}</td>
+          <td style="padding:8px 12px;font-size:11px;color:var(--text2)">${parsed.audit?.total ?? '—'}</td>
+          <td style="padding:8px 12px;font-size:11px;color:var(--text2)">${parsed.tenants?.active ?? '—'}</td>
+          <td style="padding:8px 12px;font-size:11px;color:${(parsed.abac?.denies7d || 0) > 0 ? '#ef4444' : 'var(--text3)'}">${parsed.abac?.denies7d ?? '—'}</td>
+          <td style="padding:8px 12px;font-size:10px;color:var(--text3)">${(s.created_at || '').slice(0,16)}</td>
+        </tr>
+      `
+    }).join('')
+
+    const content = `
+      <div class="page-header" style="margin-bottom:24px">
+        <div>
+          <h1 style="font-size:20px;font-weight:700;color:var(--text);margin:0">🗂 Metrics Snapshot History</h1>
+          <p style="color:var(--text2);font-size:12px;margin:4px 0 0">P17 — Stored KPI snapshots for trend comparison</p>
+        </div>
+        <a href="/metrics" style="background:var(--bg2);color:var(--text2);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:11px;text-decoration:none">← Metrics</a>
+      </div>
+
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:auto">
+        <div style="padding:12px 16px;border-bottom:1px solid var(--border);font-weight:600;font-size:13px">
+          Stored Snapshots <span style="font-size:11px;color:var(--text3);font-weight:400">(${snapshots.length} total, last 50)</span>
+        </div>
+        <table style="width:100%;border-collapse:collapse;min-width:600px">
+          <thead><tr style="background:var(--bg3)">
+            ${['ID','Period','Events Total','Audit Total','Active Tenants','ABAC Denies (7d)','Captured At'].map(h =>
+              `<th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text3);font-weight:500">${h}</th>`
+            ).join('')}
+          </tr></thead>
+          <tbody>
+            ${snapshots.length === 0
+              ? `<tr><td colspan="7" style="padding:30px;text-align:center;color:var(--text3)">No snapshots yet. Click 📸 Save Snapshot on the metrics page or use the API.</td></tr>`
+              : snapshotRows}
+          </tbody>
+        </table>
+      </div>
+    `
+    return c.html(layout('Metrics Snapshots — P17', content, '/metrics', 0, {
+      breadcrumbs: [{ label: 'Metrics', href: '/metrics' }, { label: 'Snapshots' }]
+    }))
+  })
+
+  // POST /metrics/snapshots — Save current snapshot to history
+  route.post('/snapshots', async (c) => {
+    const db = c.env.DB
+    if (!db) return c.json({ success: false, error: 'DB not available' }, 503)
+    try {
+      const snap = await getMetricsSnapshot(db)
+      const snapshotJson = JSON.stringify(snap)
+      await db.prepare(
+        `INSERT INTO platform_metrics_snapshots (snapshot_json, period, created_at)
+         VALUES (?, '7d', CURRENT_TIMESTAMP)`
+      ).bind(snapshotJson).run()
+      return c.json({ success: true, snapshot_at: snap.snapshot_at })
+    } catch (e: any) {
+      return c.json({ success: false, error: e.message || 'Insert failed' }, 500)
+    }
   })
 
   // GET /metrics/export — CSV export

@@ -278,10 +278,19 @@ export function createAuditRoute() {
           </table>
         </div>
         <div class="pagination mt-3">
-          ${page > 1 ? `<a href="/audit?page=${page - 1}${tenantFilter ? `&tenant=${tenantFilter}` : ''}${eventFilter ? `&event_type=${eventFilter}` : ''}" class="btn btn-sm btn-secondary">← Prev</a>` : ''}
-          <span class="page-info">Page ${page}</span>
-          ${events.length === limit ? `<a href="/audit?page=${page + 1}${tenantFilter ? `&tenant=${tenantFilter}` : ''}${eventFilter ? `&event_type=${eventFilter}` : ''}" class="btn btn-sm btn-secondary">Next →</a>` : ''}
+          ${page > 1 ? `<a href="/audit?page=${page - 1}${tenantFilter ? `&tenant=${tenantFilter}` : ''}${eventFilter ? `&event_type=${eventFilter}` : ''}${actorFilter ? `&actor=${actorFilter}` : ''}" class="btn btn-sm btn-secondary">← Prev</a>` : ''}
+          <span class="page-info">Page ${page} ${events.length === limit ? `— <a href="/audit?page=${page + 1}${tenantFilter ? `&tenant=${tenantFilter}` : ''}${eventFilter ? `&event_type=${eventFilter}` : ''}${actorFilter ? `&actor=${actorFilter}` : ''}" style="color:var(--accent)">Next →</a>` : '(last page)'}</span>
+          ${events.length === limit ? `<a href="/audit?page=${page + 1}${tenantFilter ? `&tenant=${tenantFilter}` : ''}${eventFilter ? `&event_type=${eventFilter}` : ''}${actorFilter ? `&actor=${actorFilter}` : ''}" class="btn btn-sm btn-secondary">Next →</a>` : ''}
+          <span style="font-size:10px;color:var(--text3);margin-left:8px">Deep link: <code style="user-select:all">/audit?page=${page}${tenantFilter ? `&tenant=${tenantFilter}` : ''}${eventFilter ? `&event_type=${eventFilter}` : ''}</code></span>
+          <button onclick="copyPageLink()" style="background:none;border:1px solid var(--border);color:var(--text3);border-radius:4px;padding:2px 8px;font-size:10px;cursor:pointer" title="Copy deep link">📋</button>
         </div>
+        <script>
+          function copyPageLink() {
+            navigator.clipboard && navigator.clipboard.writeText(window.location.href).then(() => {
+              if (typeof showToast === 'function') showToast('Link Copied', 'Page URL copied to clipboard', 'success');
+            });
+          }
+        </script>
       </div>
 
       ${abacDenySection}
@@ -534,25 +543,36 @@ export function createAuditRoute() {
 
     const q = (c.req.query('q') || '').trim()
     const eventTypeFilter = c.req.query('event_type') || ''
+    const dateFrom = c.req.query('date_from') || ''
+    const dateTo = c.req.query('date_to') || ''
+    const sortBy = c.req.query('sort') || 'desc'
     let results: any[] = []
     let searchTime = 0
 
     if (q.length >= 2 && c.env.DB) {
       const t0 = Date.now()
       try {
-        const stmt = eventTypeFilter
-          ? `SELECT id, event_type, object_type, object_id, actor, tenant_id, payload_summary, surface, created_at
+        let conditions = ['(event_type LIKE ? OR actor LIKE ? OR payload_summary LIKE ? OR object_id LIKE ?)']
+        let params: any[] = [`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`]
+
+        if (eventTypeFilter) {
+          conditions.push('event_type = ?')
+          params.push(eventTypeFilter)
+        }
+        if (dateFrom) {
+          conditions.push('created_at >= ?')
+          params.push(dateFrom + 'T00:00:00.000Z')
+        }
+        if (dateTo) {
+          conditions.push('created_at <= ?')
+          params.push(dateTo + 'T23:59:59.999Z')
+        }
+
+        const sortDir = sortBy === 'asc' ? 'ASC' : 'DESC'
+        const stmt = `SELECT id, event_type, object_type, object_id, actor, tenant_id, payload_summary, surface, created_at
              FROM audit_log_v2
-             WHERE (event_type LIKE ? OR actor LIKE ? OR payload_summary LIKE ? OR object_id LIKE ?)
-               AND event_type = ?
-             ORDER BY created_at DESC LIMIT 50`
-          : `SELECT id, event_type, object_type, object_id, actor, tenant_id, payload_summary, surface, created_at
-             FROM audit_log_v2
-             WHERE (event_type LIKE ? OR actor LIKE ? OR payload_summary LIKE ? OR object_id LIKE ?)
-             ORDER BY created_at DESC LIMIT 50`
-        const params = eventTypeFilter
-          ? [`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, eventTypeFilter]
-          : [`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`]
+             WHERE ${conditions.join(' AND ')}
+             ORDER BY created_at ${sortDir} LIMIT 50`
         const rows = await c.env.DB.prepare(stmt).bind(...params).all<any>()
         results = rows.results || []
         searchTime = Date.now() - t0
@@ -595,6 +615,14 @@ export function createAuditRoute() {
             ${['intent.created','approval.approved','approval.rejected','abac.access_denied','webhook.delivery_failed','event.archived','federation.created','anomaly.detected'].map(t =>
               `<option value="${t}"${eventTypeFilter===t?' selected':''}>${t}</option>`
             ).join('')}
+          </select>
+          <input type="date" name="date_from" value="${dateFrom}" title="Date from"
+            style="background:var(--bg2);border:1px solid var(--border);border-radius:7px;padding:9px 10px;color:var(--text);font-size:12px;outline:none">
+          <input type="date" name="date_to" value="${dateTo}" title="Date to"
+            style="background:var(--bg2);border:1px solid var(--border);border-radius:7px;padding:9px 10px;color:var(--text);font-size:12px;outline:none">
+          <select name="sort" style="background:var(--bg2);border:1px solid var(--border);border-radius:7px;padding:9px 10px;color:var(--text);font-size:12px;outline:none">
+            <option value="desc" ${sortBy==='desc'?'selected':''}>Newest first</option>
+            <option value="asc" ${sortBy==='asc'?'selected':''}>Oldest first</option>
           </select>
           <button type="submit" class="btn btn-primary">Search</button>
           ${q ? `<a href="/audit/search" class="btn btn-ghost">Clear</a>` : ''}

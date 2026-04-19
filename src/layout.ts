@@ -116,6 +116,18 @@ export function layout(title: string, content: string, activePage: string = '', 
         { path: '/metrics', label: 'Metrics', icon: '📈' },
       ]
     },
+    {
+      id: 'p17',
+      label: 'Platform P17',
+      color: '#8b5cf6',
+      badge: 'P17',
+      items: [
+        { path: '/notifications/preferences', label: 'Notif Prefs', icon: '⚙️' },
+        { path: '/metrics/snapshots', label: 'Metrics History', icon: '📷' },
+        { path: '/search/analytics', label: 'Search Analytics', icon: '📊' },
+        { path: '/admin', label: 'Admin Panel', icon: '🛡️' },
+      ]
+    },
   ]
 
   function renderSection(section: typeof navSections[0]): string {
@@ -754,14 +766,14 @@ export function layout(title: string, content: string, activePage: string = '', 
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-brand">
       <div class="brand-name">Sovereign OS</div>
-      <div class="brand-sub">Platform v1.6.0-P16</div>
+      <div class="brand-sub">Platform v1.7.0-P17</div>
     </div>
     <nav class="nav-section" id="nav-section">
       ${navHtml}
     </nav>
     <div class="sidebar-footer">
       No role collapse · No false verify<br>
-      P16 — Platform UX Overhaul
+      P17 — Notification Preferences, Bulk Ops, Admin Panel
     </div>
   </aside>
 
@@ -876,7 +888,7 @@ export function layout(title: string, content: string, activePage: string = '', 
 
     // Restore nav group states from localStorage
     (function() {
-      const groups = ['core','governance','tenants','observability','policies','advanced','p16']
+      const groups = ['core','governance','tenants','observability','policies','advanced','p16','p17']
       groups.forEach(function(id) {
         try {
           const state = localStorage.getItem('nav-group-' + id)
