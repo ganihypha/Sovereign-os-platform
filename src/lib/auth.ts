@@ -1,5 +1,6 @@
 // ============================================================
 // SOVEREIGN OS PLATFORM — MINIMAL AUTH LAYER (P1)
+// P19: Added platform_sessions write on successful login
 //
 // Strategy: API Key gate using SHA-256 hash comparison
 //   - API key is set via environment variable: PLATFORM_API_KEY
@@ -26,6 +27,28 @@ export type AuthEnv = {
   Bindings: {
     PLATFORM_API_KEY?: string
     DB?: D1Database
+  }
+}
+
+// ---- P19: Write session to platform_sessions D1 table ----
+// Fire-and-catch: never blocks auth flow on failure
+async function writeSessionRecord(
+  db: D1Database | undefined,
+  roleName: string,
+  ip: string
+): Promise<void> {
+  if (!db) return
+  try {
+    const sessionId = `sess_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
+    const now = new Date().toISOString()
+    // platform_sessions schema (from 0017): id, user_id, session_token_hash, ip_address, user_agent, last_active_at, created_at, expires_at, force_logout
+    // Store role in user_id field (platform uses role-based single-key auth)
+    await db.prepare(
+      `INSERT INTO platform_sessions (id, user_id, session_token_hash, ip_address, last_active_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).bind(sessionId, roleName, '', ip, now, now).run()
+  } catch (_e) {
+    // Graceful degradation — session write failure does not block login
   }
 }
 
@@ -215,7 +238,7 @@ export function requireApiAuth(env: { PLATFORM_API_KEY?: string }) {
 }
 
 // ---- Auth login handler (POST /auth/login) ----
-export function handleAuthLogin(env: { PLATFORM_API_KEY?: string }) {
+export function handleAuthLogin(env: { PLATFORM_API_KEY?: string; DB?: D1Database }) {
   return async (c: Context) => {
     const body = await c.req.parseBody()
     const providedKey = String(body.key ?? '').trim()
@@ -231,6 +254,10 @@ export function handleAuthLogin(env: { PLATFORM_API_KEY?: string }) {
     if (!safeEqual(providedHash, configuredHash)) {
       return c.html(authLoginPage('Invalid key. Try again.', redirect), 401)
     }
+
+    // P19: Write session record to platform_sessions (fire-and-catch)
+    const ip = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || 'unknown'
+    writeSessionRecord(env.DB, 'platform-admin', ip).catch(() => {})
 
     // Set session cookie (httpOnly, sameSite strict)
     // Note: key value is stored in cookie — user is responsible for secure transport (HTTPS)

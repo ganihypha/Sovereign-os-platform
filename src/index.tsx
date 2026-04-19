@@ -1,6 +1,6 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — MAIN ENTRY (P16 — Platform UX Overhaul, Search Enhancements, Dashboard Live Stats, Audit Detail View, Metrics, Notification Bell)
-// Version: 1.6.0-P16
+// SOVEREIGN OS PLATFORM — MAIN ENTRY (P19 — Platform Hardening, Email Delivery, Session Tracking, Changelog)
+// Version: 1.9.0-P19
 // Platform: Cloudflare Pages + Workers
 // Hono Framework — Edge-first
 // ============================================================
@@ -79,6 +79,9 @@ import { createMetricsRoute } from './routes/metrics'
 // Route imports — P17 new surfaces
 import { createAdminRoute } from './routes/admin'
 
+// Route imports — P19 new surfaces
+import { createChangelogRoute } from './routes/changelog'
+
 export type Env = {
   DB?: D1Database
   RATE_LIMITER_KV?: KVNamespace   // P6: KV-backed distributed rate limiter (optional — falls back to in-memory)
@@ -102,7 +105,7 @@ const app = new Hono<{ Bindings: Env }>()
 // AUTH ROUTES (before any middleware)
 // ============================================================
 app.post('/auth/login', async (c) => {
-  return handleAuthLogin(c.env)(c)
+  return handleAuthLogin({ PLATFORM_API_KEY: c.env.PLATFORM_API_KEY, DB: c.env.DB })(c)
 })
 app.post('/auth/logout', handleAuthLogout())
 
@@ -226,6 +229,9 @@ app.route('/metrics', createMetricsRoute())
 // P17: Platform admin panel
 app.route('/admin', createAdminRoute())
 
+// P19: Platform changelog
+app.route('/changelog', createChangelogRoute())
+
 // P6: Tenant namespace path routing — /t/:slug/*
 // P7: Injects tenant branding CSS into routing context
 // P14: Tenant ABAC enforcement for mutation paths
@@ -288,8 +294,8 @@ app.get('/health', (c) => {
   return c.json({
     status: 'ok',
     platform: 'Sovereign OS Platform',
-    version: '1.8.0-P18',
-    phase: 'P18 — UI/UX Upgrade, Nav Reorganization, Workflow History, Performance, Bug Fixes',
+    version: '1.9.0-P19',
+    phase: 'P19 — Platform Hardening, Email Delivery, Session Tracking, Changelog',
     persistence: repo.isPersistent ? 'd1' : 'in-memory',
     auth_configured: !!c.env.PLATFORM_API_KEY,
     kv_rate_limiter: !!c.env.RATE_LIMITER_KV ? 'kv-enforced' : 'in-memory-partial',
@@ -313,8 +319,8 @@ app.get('/status', async (c) => {
     return c.json({
       status: 'operational',
       platform: 'Sovereign OS Platform',
-      version: '1.8.0-P18',
-      phase: 'P18 — UI/UX Upgrade, Nav Reorganization, Workflow History, Performance, Bug Fixes',
+      version: '1.9.0-P19',
+      phase: 'P19 — Platform Hardening, Email Delivery, Session Tracking, Changelog',
       persistence: repo.isPersistent ? 'd1-persistent' : 'in-memory-ephemeral',
       auth_configured: !!c.env.PLATFORM_API_KEY,
       kv_rate_limiter: !!c.env.RATE_LIMITER_KV ? 'kv-enforced' : 'in-memory-partial',
@@ -401,6 +407,14 @@ app.get('/status', async (c) => {
         policies_simulate_fix: 'active',    // P18 — fixed CF dynamic import error
         apiv1_root_fix: 'active',           // P18 — fixed /api/v1 root 500
         skip_to_content: 'active',          // P18 — accessibility skip link
+        // P19 new surfaces
+        changelog: 'active',                // P19 — /changelog
+        custom_404: 'active',               // P19 — branded 404 page
+        custom_500: 'active',               // P19 — branded 500 error handler
+        session_tracking: 'active',         // P19 — platform_sessions write on login
+        email_service: 'active',            // P19 — emailService.ts Resend wrapper
+        email_log: 'active',                // P19 — email_log D1 table
+        error_log: 'active',                // P19 — error_log D1 table
       },
       counts: {
         sessions: sessions.length,
@@ -415,12 +429,146 @@ app.get('/status', async (c) => {
     return c.json({
       status: 'degraded',
       platform: 'Sovereign OS Platform',
-      version: '1.6.0-P16',
+      version: '1.9.0-P19',
       error: 'Could not read platform state',
       persistence: 'unknown',
       timestamp: new Date().toISOString(),
     }, 503)
   }
+})
+
+// ============================================================
+// P19: CUSTOM 404 / 500 ERROR PAGES (branded)
+// ============================================================
+
+// ---- Branded 404 page ----
+function page404(path: string): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>404 — Page Not Found | Sovereign OS Platform</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:#0a0c10;color:#e8eaf0;font-family:'Inter',system-ui,sans-serif;
+      display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px}
+    .container{max-width:520px;width:100%;text-align:center}
+    .code{font-size:96px;font-weight:800;line-height:1;
+      background:linear-gradient(135deg,#4f8ef7,#8b5cf6);
+      -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+    .title{font-size:22px;font-weight:600;color:#e8eaf0;margin:12px 0 8px}
+    .sub{font-size:14px;color:#6b7890;line-height:1.6;margin-bottom:8px}
+    .path{font-family:'JetBrains Mono',monospace;font-size:12px;
+      background:#111318;border:1px solid #232830;border-radius:4px;
+      padding:6px 12px;display:inline-block;color:#94a3b8;margin-bottom:32px}
+    .actions{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+    .btn{padding:10px 22px;border-radius:6px;font-size:14px;font-weight:600;
+      text-decoration:none;display:inline-block;transition:opacity 0.2s}
+    .btn-primary{background:#4f8ef7;color:#fff}
+    .btn-primary:hover{opacity:0.85}
+    .btn-ghost{background:transparent;color:#4f8ef7;border:1px solid #4f8ef7}
+    .btn-ghost:hover{background:rgba(79,142,247,0.1)}
+    .logo{font-size:11px;font-weight:700;letter-spacing:2px;color:#4f8ef7;
+      text-transform:uppercase;margin-bottom:32px;opacity:0.7}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">⬡ Sovereign OS Platform</div>
+    <div class="code">404</div>
+    <h1 class="title">Page Not Found</h1>
+    <p class="sub">The surface you're looking for doesn't exist or has been moved.</p>
+    <div class="path">${path}</div>
+    <div class="actions">
+      <a href="/dashboard" class="btn btn-primary">⬡ Dashboard</a>
+      <a href="/status" class="btn btn-ghost">Status</a>
+    </div>
+  </div>
+</body>
+</html>`
+}
+
+// ---- Branded 500 page ----
+function page500(path: string, errMsg: string): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>500 — Internal Error | Sovereign OS Platform</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:#0a0c10;color:#e8eaf0;font-family:'Inter',system-ui,sans-serif;
+      display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px}
+    .container{max-width:520px;width:100%;text-align:center}
+    .code{font-size:96px;font-weight:800;line-height:1;
+      background:linear-gradient(135deg,#ef4444,#f59e0b);
+      -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+    .title{font-size:22px;font-weight:600;color:#e8eaf0;margin:12px 0 8px}
+    .sub{font-size:14px;color:#6b7890;line-height:1.6;margin-bottom:8px}
+    .err{font-family:'JetBrains Mono',monospace;font-size:12px;
+      background:#111318;border:1px solid rgba(239,68,68,0.3);border-radius:4px;
+      padding:8px 14px;display:inline-block;color:#ef4444;margin-bottom:32px;
+      max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .actions{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+    .btn{padding:10px 22px;border-radius:6px;font-size:14px;font-weight:600;
+      text-decoration:none;display:inline-block;transition:opacity 0.2s}
+    .btn-primary{background:#4f8ef7;color:#fff}
+    .btn-primary:hover{opacity:0.85}
+    .btn-ghost{background:transparent;color:#4f8ef7;border:1px solid #4f8ef7}
+    .btn-ghost:hover{background:rgba(79,142,247,0.1)}
+    .logo{font-size:11px;font-weight:700;letter-spacing:2px;color:#ef4444;
+      text-transform:uppercase;margin-bottom:32px;opacity:0.7}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">⬡ Sovereign OS Platform</div>
+    <div class="code">500</div>
+    <h1 class="title">Internal Server Error</h1>
+    <p class="sub">Something went wrong processing your request. The platform team has been notified.</p>
+    <div class="err">${errMsg ? errMsg.substring(0, 120) : 'Internal error'}</div>
+    <div class="actions">
+      <a href="/dashboard" class="btn btn-primary">⬡ Dashboard</a>
+      <a href="/health" class="btn btn-ghost">Health Check</a>
+    </div>
+  </div>
+</body>
+</html>`
+}
+
+// P19: Custom 404 catch-all — MUST be last route
+app.notFound(async (c) => {
+  const path = new URL(c.req.url).pathname
+  // Log 404 to error_log D1 (fire-and-catch)
+  if (c.env.DB) {
+    c.env.DB.prepare(
+      `INSERT INTO error_log (path, method, status_code, error_message) VALUES (?, ?, 404, 'Not Found')`
+    ).bind(path, c.req.method).run().catch(() => {})
+  }
+  // JSON for API paths, HTML for page paths
+  if (path.startsWith('/api/')) {
+    return c.json({ error: 'NOT_FOUND', message: `No route found for ${c.req.method} ${path}` }, 404)
+  }
+  return c.html(page404(path), 404)
+})
+
+// P19: Custom 500 error handler
+app.onError(async (err, c) => {
+  const path = new URL(c.req.url).pathname
+  const errMsg = err instanceof Error ? err.message : 'Unknown error'
+  // Log to error_log D1 (fire-and-catch)
+  if (c.env.DB) {
+    c.env.DB.prepare(
+      `INSERT INTO error_log (path, method, status_code, error_message, stack_hint) VALUES (?, ?, 500, ?, ?)`
+    ).bind(path, c.req.method, errMsg, err instanceof Error ? (err.stack || '').substring(0, 200) : '').run().catch(() => {})
+  }
+  // JSON for API paths, HTML for page paths
+  if (path.startsWith('/api/')) {
+    return c.json({ error: 'INTERNAL_ERROR', message: 'An internal error occurred.' }, 500)
+  }
+  return c.html(page500(path, errMsg), 500)
 })
 
 export default app
