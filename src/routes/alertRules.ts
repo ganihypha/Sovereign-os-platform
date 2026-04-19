@@ -15,6 +15,7 @@ import {
   type AlertRule
 } from '../lib/alertRulesService'
 import { abacGuardAlertRulesWrite } from '../lib/abacMiddleware'
+import { getAbacUiConfig, generateAbacUiScript } from '../lib/abacUiService'
 
 function statusBadge(status: string): string {
   const map: Record<string, { bg: string; color: string; border: string }> = {
@@ -41,6 +42,15 @@ export function createAlertRulesRoute() {
   route.get('/', async (c) => {
     const rules = c.env.DB ? await getAllAlertRules(c.env.DB) : []
     const triggers = c.env.DB ? await getAlertRuleTriggers(c.env.DB, undefined, undefined, 20) : []
+
+    // P14: Load ABAC UI config for alert-rules surface
+    let abacUiScript = ''
+    if (c.env.DB) {
+      try {
+        const abacConfigs = await getAbacUiConfig(c.env.DB, 'alert-rules')
+        abacUiScript = generateAbacUiScript('alert-rules', abacConfigs)
+      } catch { /* non-blocking */ }
+    }
 
     // Collect current metrics for "live test" display
     let currentMetrics: Record<string, number> = {}
@@ -193,7 +203,7 @@ export function createAlertRulesRoute() {
       <!-- Create Rule Form -->
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:24px">
         <h2 style="font-size:15px;font-weight:700;color:var(--text);margin-bottom:16px">Create New Alert Rule</h2>
-        <form action="/alert-rules/create" method="POST">
+        <form action="/alert-rules/create" method="POST" data-abac-action="write" data-abac-resource="alert-rules">
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
             <div>
               <label style="display:block;font-size:11px;color:var(--text3);margin-bottom:6px">Rule Name *</label>
@@ -232,7 +242,7 @@ export function createAlertRulesRoute() {
               <input name="cooldown_minutes" type="number" value="60" min="5" style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:12px;box-sizing:border-box">
             </div>
           </div>
-          <button type="submit" style="background:var(--accent);color:#fff;border:none;border-radius:6px;padding:9px 24px;font-size:13px;font-weight:600;cursor:pointer">Create Alert Rule</button>
+          <button type="submit" data-abac-action="write" data-abac-resource="alert-rules" style="background:var(--accent);color:#fff;border:none;border-radius:6px;padding:9px 24px;font-size:13px;font-weight:600;cursor:pointer">Create Alert Rule</button>
         </form>
       </div>
 
@@ -242,6 +252,8 @@ export function createAlertRulesRoute() {
         Notifications created by rules are tagged <code>[ai-generated: rule engine auto-notification]</code>.
         Cooldown prevents duplicate alerts for the same rule within the configured window.
       </div>
+
+      ${abacUiScript}
     `
     return c.html(layout('Alert Rules', content, '/alert-rules'))
   })

@@ -1,12 +1,15 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — ABAC HTTP MIDDLEWARE (P12+P13)
+// SOVEREIGN OS PLATFORM — ABAC HTTP MIDDLEWARE (P12+P13+P14)
 // P13: Log deny events to abac_deny_log for analytics
+// P14: Tenant-aware ABAC enforcement for /t/:slug/* paths
+//      Wire ABAC deny → platform notification (P14)
 // ============================================================
 
 import type { Context, Next } from 'hono'
 import type { Env } from '../index'
 import { checkAccess, type AbacContext } from './abacService'
 import { logAbacDeny } from './abacUiService'
+import { notifyAbacDeny } from './platformNotificationService'
 
 // ============================================================
 // createAbacMiddleware — factory for route-specific ABAC guard
@@ -70,6 +73,15 @@ export function createAbacMiddleware(
           tenant_id: tenantId
         }).catch(() => {})
 
+        // P14: Emit platform notification for ABAC deny
+        notifyAbacDeny(c.env.DB, {
+          surface: resourceType,
+          resource_type: resourceType,
+          action,
+          subject_role: subjectValue,
+          tenant_id: tenantId
+        }).catch(() => {})
+
         return c.json(
           {
             error: 'Access denied',
@@ -85,6 +97,86 @@ export function createAbacMiddleware(
       }
     } catch {
       // Fail-open on any error (edge-safe, non-blocking)
+    }
+
+    return next()
+  }
+}
+
+// ============================================================
+// P14: createTenantAbacMiddleware — tenant-scoped ABAC enforcement
+// For /t/:slug/* paths: load tenant policies + enforce alongside role policies
+// ============================================================
+export function createTenantAbacMiddleware() {
+  return async (c: Context<{ Bindings: Env }>, next: Next) => {
+    // Fail-open if no DB
+    if (!c.env.DB) return next()
+
+    // Only enforce POST/DELETE/PATCH (mutations) — GETs are read-only, pass through
+    const method = c.req.method.toUpperCase()
+    if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return next()
+
+    // Extract tenant slug from path /t/:slug/*
+    const pathParts = new URL(c.req.url).pathname.split('/')
+    const slug = pathParts[2] // /t/:slug/...
+
+    if (!slug) return next()
+
+    // Resolve tenant_id from slug
+    let tenantId: string | null = null
+    try {
+      const tenant = await c.env.DB.prepare(
+        `SELECT id FROM tenants WHERE slug = ?`
+      ).bind(slug).first<{ id: string }>()
+      tenantId = tenant?.id || null
+    } catch { /* fail-open */ }
+
+    if (!tenantId) return next()
+
+    // Get role from header (default: viewer for unauthenticated)
+    const role = c.req.header('X-Platform-Role') ?? 'viewer'
+
+    // Determine surface from path
+    const surface = pathParts[3] || 'dashboard'
+
+    const ctx: AbacContext = {
+      subject_type: 'role',
+      subject_value: role,
+      resource_type: surface,
+      action: 'write',
+      tenant_id: tenantId
+    }
+
+    try {
+      const result = await checkAccess(c.env.DB, ctx, 'allow')
+
+      if (!result.allowed) {
+        // Log denial
+        logAbacDeny(c.env.DB, {
+          surface: `tenant:${slug}:${surface}`,
+          resource_type: surface,
+          action: 'write',
+          subject_role: role,
+          tenant_id: tenantId
+        }).catch(() => {})
+
+        return c.json(
+          {
+            error: 'Access denied',
+            decision: result.decision,
+            reason: result.reason,
+            tenant_slug: slug,
+            tenant_id: tenantId,
+            resource: surface,
+            action: 'write',
+            subject: `role:${role}`,
+            audit_tag: 'tenant.abac.write.denied'
+          },
+          403
+        )
+      }
+    } catch {
+      // Fail-open
     }
 
     return next()

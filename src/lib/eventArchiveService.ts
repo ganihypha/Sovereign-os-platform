@@ -1,5 +1,6 @@
 // src/lib/eventArchiveService.ts
 // P13 — Event Auto-Archive + Retention Policy
+// P14 — Wire archive result → platform notification
 // ai-generated [human-confirmation-gate: required before canonization]
 //
 // Features:
@@ -8,6 +9,7 @@
 // - Manual archive: POST /events/archive-old
 // - Retention config in D1 event_retention_config table
 // - Archive stats on /events surface
+// - P14: Notify on archive cycle completion
 // ============================================================
 
 export interface ArchiveResult {
@@ -141,13 +143,23 @@ export async function runEventArchive(
     const totalArchived = await db.prepare(`SELECT COUNT(*) as cnt FROM event_archives`)
       .first<{ cnt: number }>()
 
-    return {
+    const result: ArchiveResult = {
       archived_count: archivedCount,
       retention_days: days,
       oldest_active_age_days: oldestAgeDays,
       archived_total: totalArchived?.cnt || 0,
       ran_at: now
     }
+
+    // P14: Emit notification if any events were archived
+    if (archivedCount > 0) {
+      try {
+        const { notifyEventArchive } = await import('./platformNotificationService')
+        notifyEventArchive(db, { archived_count: archivedCount }).catch(() => {})
+      } catch { /* non-blocking */ }
+    }
+
+    return result
   } catch {
     return {
       archived_count: 0,

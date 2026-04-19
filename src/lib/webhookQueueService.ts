@@ -1,8 +1,9 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — WEBHOOK QUEUE PROCESSOR (P12)
+// SOVEREIGN OS PLATFORM — WEBHOOK QUEUE PROCESSOR (P12+P14)
 // Purpose: Process webhook_delivery_queue with retry backoff
 // Retry policy: 1m → 5m → 30m (max 3 retries)
 // Called lazily on each /connectors request
+// P14: Notify on final delivery failure
 // ============================================================
 
 export interface WebhookQueueItem {
@@ -112,6 +113,18 @@ async function handleDeliveryFailure(
       WHERE id = ?
     `).bind(error.slice(0, 200), now.toISOString(), newAttemptCount, item.id).run()
     stats.failed++
+
+    // P14: Notify on final webhook delivery failure
+    try {
+      const { notifyWebhookFailed } = await import('./platformNotificationService')
+      notifyWebhookFailed(db, {
+        webhook_id: item.id,
+        connector_id: item.connector_id,
+        target_url: item.target_url,
+        retry_count: newAttemptCount,
+        tenant_id: item.tenant_id
+      }).catch(() => {})
+    } catch { /* non-blocking */ }
   } else {
     // Schedule retry
     const delaySecs = getNextAttemptDelay(newAttemptCount)

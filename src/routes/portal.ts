@@ -12,6 +12,9 @@
 // POST /portal/:slug/federation/request — Request federation with another tenant
 // GET /portal/:slug/marketplace — Tenant marketplace submission
 // POST /portal/:slug/marketplace/submit — Submit connector to marketplace
+// GET /portal/:slug/policies  — P14: Tenant portal policy management tab
+// POST /portal/:slug/policies/assign — P14: Assign policy to tenant via portal
+// POST /portal/:slug/policies/remove — P14: Remove policy from tenant via portal
 //
 // AUTH: tenant API key scope enforcement (public_api_keys)
 // ============================================================
@@ -20,6 +23,7 @@ import { Hono } from 'hono'
 import type { Env } from '../index'
 import { layout } from '../layout'
 import { createRepo } from '../lib/repo'
+import { getTenantPolicies, assignTenantPolicy, removeTenantPolicy } from '../lib/abacUiService'
 
 export const portalRoute = new Hono<{ Bindings: Env }>()
 
@@ -93,6 +97,7 @@ portalRoute.get('/:slug', async (c) => {
     { path: `/portal/${slug}/metrics`, icon: '📊', label: 'Metrics', desc: 'Usage & performance data' },
     { path: `/portal/${slug}/federation`, icon: '🔗', label: 'Federation', desc: `${fedCount} active federations`, badge: fedCount },
     { path: `/portal/${slug}/marketplace`, icon: '🛒', label: 'Marketplace', desc: 'Submit connectors' },
+    { path: `/portal/${slug}/policies`, icon: '🛡️', label: 'Policies', desc: 'ABAC policy management' },
   ]
 
   const content = `
@@ -549,4 +554,156 @@ portalRoute.post('/:slug/marketplace/submit', async (c) => {
   }
 
   return c.redirect(`/portal/${slug}/marketplace?submitted=1`)
+})
+
+// ============================================================
+// P14: GET /portal/:slug/policies — Tenant Portal Policy Management
+// ============================================================
+portalRoute.get('/:slug/policies', async (c) => {
+  const slug = c.req.param('slug')
+  const db = c.env.DB
+  const { allowed, tenant } = await getPortalTenant(c, slug)
+  if (!allowed || !tenant) return c.redirect('/portal')
+
+  const assigned = c.req.query('assigned')
+  const removed = c.req.query('removed')
+
+  // Load tenant's currently assigned policies
+  let tenantPolicies: Array<{ policy_id: string; delegated_by: string; delegated_at: string }> = []
+  let allActivePolicies: any[] = []
+  try {
+    tenantPolicies = await getTenantPolicies(db, tenant.id)
+    const result = await db.prepare(
+      `SELECT id, name, description, effect FROM abac_policies WHERE status = 'active' ORDER BY name`
+    ).all<any>()
+    allActivePolicies = result.results || []
+  } catch (_) { }
+
+  // Determine assigned policy ids set
+  const assignedPolicyIds = new Set(tenantPolicies.map(p => p.policy_id))
+
+  // Available policies not yet assigned
+  const availablePolicies = allActivePolicies.filter(p => !assignedPolicyIds.has(p.id))
+
+  // Policy detail map
+  const policyMap: Record<string, any> = {}
+  for (const p of allActivePolicies) policyMap[p.id] = p
+
+  const assignedRows = tenantPolicies.map(p => {
+    const pol = policyMap[p.policy_id]
+    const effectColor = pol?.effect === 'allow' ? '#22c55e' : '#ef4444'
+    return `
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:10px 14px;font-size:12px;font-weight:500;color:var(--text)">${pol?.name || p.policy_id}</td>
+        <td style="padding:10px 14px;font-size:11px;color:var(--text3)">${pol?.description || '—'}</td>
+        <td style="padding:10px 14px">
+          <span style="background:${effectColor}22;color:${effectColor};border-radius:5px;padding:2px 7px;font-size:11px">${pol?.effect || '—'}</span>
+        </td>
+        <td style="padding:10px 14px;font-size:11px;color:var(--text3)">${p.delegated_by}</td>
+        <td style="padding:10px 14px;font-size:11px;color:var(--text3)">${(p.delegated_at || '').slice(0, 16)}</td>
+        <td style="padding:10px 14px">
+          <form method="POST" action="/portal/${slug}/policies/remove" style="display:inline">
+            <input type="hidden" name="policy_id" value="${p.policy_id}">
+            <button type="submit" style="background:rgba(239,68,68,0.1);color:#ef4444;border:none;border-radius:4px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600" onclick="return confirm('Remove policy ${pol?.name || p.policy_id}?')">Remove</button>
+          </form>
+        </td>
+      </tr>`
+  }).join('')
+
+  const content = `
+  <div class="page-header">
+    <div>
+      <h1>🛡️ ABAC Policies</h1>
+      <p style="color:var(--text2)">${tenant.name} — P14 Policy Management</p>
+    </div>
+    <a href="/portal/${slug}" style="color:var(--text2);text-decoration:none">← Portal Home</a>
+  </div>
+
+  ${assigned ? `<div style="background:#22c55e22;border:1px solid #22c55e;border-radius:7px;padding:10px 16px;margin-bottom:16px;color:#22c55e">✅ Policy assigned successfully</div>` : ''}
+  ${removed ? `<div style="background:#f59e0b22;border:1px solid #f59e0b;border-radius:7px;padding:10px 16px;margin-bottom:16px;color:#f59e0b">⚠️ Policy removed from tenant</div>` : ''}
+
+  <!-- Assigned Policies Table -->
+  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:20px">
+    <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <span style="font-weight:600">Assigned Policies</span>
+        <span style="color:var(--text3);font-size:12px;margin-left:8px">${tenantPolicies.length} assigned</span>
+      </div>
+      <span style="background:#8b5cf622;color:#8b5cf6;border-radius:5px;padding:2px 8px;font-size:11px">P14</span>
+    </div>
+    <table style="width:100%;border-collapse:collapse">
+      <thead><tr style="background:var(--bg3)">
+        ${['Policy Name','Description','Effect','Granted By','Granted At','Action'].map(h => `<th style="padding:10px 14px;text-align:left;color:var(--text3);font-size:11px;font-weight:500">${h}</th>`).join('')}
+      </tr></thead>
+      <tbody>
+        ${tenantPolicies.length === 0
+          ? `<tr><td colspan="6" style="padding:30px;text-align:center;color:var(--text3)">No policies assigned. Assign one below.</td></tr>`
+          : assignedRows}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Assign New Policy -->
+  ${availablePolicies.length > 0 ? `
+  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:20px;max-width:500px">
+    <div style="font-weight:600;margin-bottom:14px">Assign Policy to Tenant</div>
+    <form method="POST" action="/portal/${slug}/policies/assign">
+      <div style="margin-bottom:14px">
+        <label style="display:block;color:var(--text2);font-size:12px;margin-bottom:6px">SELECT POLICY *</label>
+        <select name="policy_id" required style="width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:9px 12px;color:var(--text);font-size:14px">
+          <option value="">Choose a policy...</option>
+          ${availablePolicies.map(p => `<option value="${p.id}">${p.name} (${p.effect})</option>`).join('')}
+        </select>
+      </div>
+      <div style="background:var(--bg3);border-radius:6px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:var(--text3)">
+        ℹ️ Assigning a policy gives this tenant's requests additional ABAC context during policy evaluation.
+      </div>
+      <button type="submit" style="background:var(--accent);color:#fff;border:none;border-radius:6px;padding:10px 20px;cursor:pointer;font-size:14px">Assign Policy</button>
+    </form>
+  </div>` : `
+  <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:20px">
+    <p style="color:var(--text2);font-size:13px">All available active policies are already assigned to this tenant. <a href="/policies" style="color:var(--accent)">Manage policies</a></p>
+  </div>`}
+
+  <div style="margin-top:16px;padding:12px 16px;background:rgba(139,92,246,0.05);border:1px solid rgba(139,92,246,0.15);border-radius:8px;font-size:11px;color:var(--text3)">
+    <span style="color:#8b5cf6;font-weight:600">P14 Tenant Policy Delegation:</span>
+    Policies assigned here are stored in <code>tenant_policies</code> and used for tenant-scoped ABAC enforcement on <code>/t/${slug}/*</code> routes.
+    Platform admin can also manage policies from <a href="/tenants/${tenant.id}" style="color:#8b5cf6">/tenants/${tenant.id}</a>.
+  </div>
+  `
+  return c.html(layout(`${tenant.name} — Policies`, content, `/portal/${slug}`))
+})
+
+// POST /portal/:slug/policies/assign
+portalRoute.post('/:slug/policies/assign', async (c) => {
+  const slug = c.req.param('slug')
+  const db = c.env.DB
+  const { allowed, tenant } = await getPortalTenant(c, slug)
+  if (!allowed || !tenant) return c.redirect('/portal')
+
+  const body = await c.req.parseBody()
+  const policy_id = String(body.policy_id || '').trim()
+
+  if (policy_id) {
+    await assignTenantPolicy(db, tenant.id, policy_id, 'portal-self-service')
+  }
+
+  return c.redirect(`/portal/${slug}/policies?assigned=1`)
+})
+
+// POST /portal/:slug/policies/remove
+portalRoute.post('/:slug/policies/remove', async (c) => {
+  const slug = c.req.param('slug')
+  const db = c.env.DB
+  const { allowed, tenant } = await getPortalTenant(c, slug)
+  if (!allowed || !tenant) return c.redirect('/portal')
+
+  const body = await c.req.parseBody()
+  const policy_id = String(body.policy_id || '').trim()
+
+  if (policy_id) {
+    await removeTenantPolicy(db, tenant.id, policy_id)
+  }
+
+  return c.redirect(`/portal/${slug}/policies?removed=1`)
 })

@@ -151,6 +151,18 @@ export function layout(title: string, content: string, activePage: string = '', 
       <span class="nav-label">${n.label}</span>
       ${badgeHtml}
     </a>`
+  }).join('') + `<div class="nav-section-label">P14</div>` + [
+    { path: '/audit/deny-log', label: 'ABAC Deny Log', icon: '🔒', badge: 'P14' },
+    { path: '/portal/default/policies', label: 'Portal Policies', icon: '🛡️', badge: 'P14' },
+    { path: '/health-dashboard#abac-drill-down', label: 'Health Drill-down', icon: '🔍', badge: 'P14' },
+  ].map(n => {
+    const isActive = activePage === n.path
+    const badgeHtml = `<span style="background:#ec4899;color:#fff;border-radius:10px;padding:0 5px;font-size:9px;font-weight:700;margin-left:auto">${n.badge}</span>`
+    return `<a href="${n.path}" class="nav-item${isActive ? ' active' : ''}">
+      <span class="nav-icon">${n.icon}</span>
+      <span class="nav-label">${n.label}</span>
+      ${badgeHtml}
+    </a>`
   }).join('')
 
   return `<!DOCTYPE html>

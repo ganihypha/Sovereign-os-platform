@@ -1,6 +1,6 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — MAIN ENTRY (P12 — ABAC MIDDLEWARE, SCHEDULED REPORTS, WEBHOOK QUEUE, EVENT BUS INTEGRATION, API KEY PERMISSIONS)
-// Version: 1.3.0-P13
+// SOVEREIGN OS PLATFORM — MAIN ENTRY (P14 — Alert Rules ABAC UI, Portal Policies, Tenant ABAC Middleware, Health Drill-down, Audit Trail Improvements, Notification Integration)
+// Version: 1.4.0-P14
 // Platform: Cloudflare Pages + Workers
 // Hono Framework — Edge-first
 // ============================================================
@@ -209,12 +209,19 @@ app.route('/reports/subscriptions', createReportSubscriptionsRoute())
 
 // P6: Tenant namespace path routing — /t/:slug/*
 // P7: Injects tenant branding CSS into routing context
+// P14: Tenant ABAC enforcement for mutation paths
 app.use('/t/:slug/*', async (c, next) => {
   const { createRepo } = await import('./lib/repo')
   const { createTenantMiddleware } = await import('./lib/tenantContext')
   const repo = createRepo(c.env.DB)
   const middleware = createTenantMiddleware(() => repo)
   return middleware(c, next)
+})
+// P14: Inject tenant ABAC middleware for POST/DELETE/PATCH mutations on /t/:slug/*
+app.use('/t/:slug/*', async (c, next) => {
+  const { createTenantAbacMiddleware } = await import('./lib/abacMiddleware')
+  const tenantAbac = createTenantAbacMiddleware()
+  return tenantAbac(c, next)
 })
 app.get('/t/:slug', (c) => {
   const slug = c.req.param('slug')
@@ -262,8 +269,8 @@ app.get('/health', (c) => {
   return c.json({
     status: 'ok',
     platform: 'Sovereign OS Platform',
-    version: '1.3.0-P13',
-    phase: 'P13 — ABAC-Aware UI, Event Archive, API Key Policy UI, Observability, Tenant ABAC',
+    version: '1.4.0-P14',
+    phase: 'P14 — Alert Rules ABAC UI, Portal Policies, Tenant ABAC Middleware, Health Drill-down, Audit Improvements, Notification Integration',
     persistence: repo.isPersistent ? 'd1' : 'in-memory',
     auth_configured: !!c.env.PLATFORM_API_KEY,
     kv_rate_limiter: !!c.env.RATE_LIMITER_KV ? 'kv-enforced' : 'in-memory-partial',
@@ -287,8 +294,8 @@ app.get('/status', async (c) => {
     return c.json({
       status: 'operational',
       platform: 'Sovereign OS Platform',
-      version: '1.3.0-P13',
-      phase: 'P13 — ABAC-Aware UI, Event Archive, API Key Policy UI, Observability, Tenant ABAC',
+      version: '1.4.0-P14',
+      phase: 'P14 — Alert Rules ABAC UI, Portal Policies, Tenant ABAC Middleware, Health Drill-down, Audit Improvements, Notification Integration',
       persistence: repo.isPersistent ? 'd1-persistent' : 'in-memory-ephemeral',
       auth_configured: !!c.env.PLATFORM_API_KEY,
       kv_rate_limiter: !!c.env.RATE_LIMITER_KV ? 'kv-enforced' : 'in-memory-partial',
@@ -361,7 +368,7 @@ app.get('/status', async (c) => {
     return c.json({
       status: 'degraded',
       platform: 'Sovereign OS Platform',
-      version: '1.3.0-P13',
+      version: '1.4.0-P14',
       error: 'Could not read platform state',
       persistence: 'unknown',
       timestamp: new Date().toISOString(),
