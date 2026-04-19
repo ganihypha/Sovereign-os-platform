@@ -278,6 +278,193 @@ workflowsRoute.post('/create', async (c) => {
   return c.redirect(`/workflows/${wf.id}`)
 })
 
+// GET /workflows/history — P18: Workflow Run History (all runs across all workflows)
+workflowsRoute.get('/history', async (c) => {
+  const db = c.env.DB
+  const page = parseInt(c.req.query('page') || '1')
+  const limit = 40
+  const offset = (page - 1) * limit
+  const filterStatus = c.req.query('status') || ''
+  const filterWorkflow = c.req.query('workflow') || ''
+
+  let runs: any[] = []
+  let total = 0
+
+  try {
+    if (db) {
+      let q = `SELECT * FROM workflow_run_history`
+      const params: any[] = []
+      const wheres: string[] = []
+      if (filterStatus) { wheres.push(`status = ?`); params.push(filterStatus) }
+      if (filterWorkflow) { wheres.push(`workflow_name LIKE ?`); params.push(`%${filterWorkflow}%`) }
+      if (wheres.length) q += ` WHERE ` + wheres.join(' AND ')
+      q += ` ORDER BY started_at DESC LIMIT ? OFFSET ?`
+      params.push(limit, offset)
+      const res = await db.prepare(q).bind(...params).all()
+      runs = res.results || []
+
+      // Count total
+      let cq = `SELECT COUNT(*) as cnt FROM workflow_run_history`
+      const cparams: any[] = []
+      const cwheres: string[] = []
+      if (filterStatus) { cwheres.push(`status = ?`); cparams.push(filterStatus) }
+      if (filterWorkflow) { cwheres.push(`workflow_name LIKE ?`); cparams.push(`%${filterWorkflow}%`) }
+      if (cwheres.length) cq += ` WHERE ` + cwheres.join(' AND ')
+      const cr = await db.prepare(cq).bind(...cparams).first() as any
+      total = cr?.cnt || 0
+    }
+  } catch (_) {
+    // table may not exist yet
+  }
+
+  const totalPages = Math.ceil(total / limit)
+
+  const statusColors: Record<string, string> = {
+    running: '#4f8ef7',
+    completed: '#22c55e',
+    failed: '#ef4444',
+    cancelled: '#9aa3b2'
+  }
+
+  function statusBadge(s: string) {
+    const c = statusColors[s] || '#9aa3b2'
+    return `<span style="padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;background:${c}22;color:${c};border:1px solid ${c}44">${s.toUpperCase()}</span>`
+  }
+
+  function fmtDur(ms: number) {
+    if (!ms) return '—'
+    if (ms < 1000) return `${ms}ms`
+    if (ms < 60000) return `${(ms/1000).toFixed(1)}s`
+    return `${Math.floor(ms/60000)}m ${Math.floor((ms%60000)/1000)}s`
+  }
+
+  const rows = runs.map(r => `
+    <tr>
+      <td style="padding:10px 12px;font-family:monospace;font-size:11px;color:var(--text3)">${r.id?.slice(0,8) || '—'}</td>
+      <td style="padding:10px 12px;font-size:13px;font-weight:500;color:var(--text)">
+        <a href="/workflows/${r.workflow_id}" style="color:var(--accent);text-decoration:none">${r.workflow_name || r.workflow_id || '—'}</a>
+      </td>
+      <td style="padding:10px 12px">${statusBadge(r.status)}</td>
+      <td style="padding:10px 12px;font-size:12px;color:var(--text2)">${r.trigger_type || '—'}</td>
+      <td style="padding:10px 12px;font-size:12px;color:var(--text2)">${r.trigger_by || '—'}</td>
+      <td style="padding:10px 12px;font-family:monospace;font-size:12px;color:var(--text2)">${fmtDur(r.duration_ms)}</td>
+      <td style="padding:10px 12px;font-size:11px;color:var(--text3)">${r.steps_completed || 0}/${r.steps_total || 0}</td>
+      <td style="padding:10px 12px;font-size:11px;color:var(--text3)">
+        ${r.error_message ? `<span style="color:var(--red)" title="${r.error_message}">⚠️ ${r.error_message.slice(0,40)}...</span>` : (r.output_summary ? r.output_summary.slice(0,50) : '—')}
+      </td>
+      <td style="padding:10px 12px;font-size:11px;color:var(--text3)">${r.started_at ? new Date(r.started_at).toLocaleString() : '—'}</td>
+    </tr>
+  `).join('')
+
+  // Stats
+  const totalRuns = total
+  const completedRuns = runs.filter(r => r.status === 'completed').length
+  const failedRuns = runs.filter(r => r.status === 'failed').length
+  const runningRuns = runs.filter(r => r.status === 'running').length
+  const avgDur = runs.filter(r => r.duration_ms > 0).length > 0
+    ? Math.round(runs.filter(r => r.duration_ms > 0).reduce((a, r) => a + r.duration_ms, 0) / runs.filter(r => r.duration_ms > 0).length)
+    : 0
+
+  const prevPage = page > 1 ? `<a href="/workflows/history?page=${page-1}${filterStatus?'&status='+filterStatus:''}${filterWorkflow?'&workflow='+encodeURIComponent(filterWorkflow):''}" class="btn btn-ghost btn-sm">← Prev</a>` : ''
+  const nextPage = page < totalPages ? `<a href="/workflows/history?page=${page+1}${filterStatus?'&status='+filterStatus:''}${filterWorkflow?'&workflow='+encodeURIComponent(filterWorkflow):''}" class="btn btn-ghost btn-sm">Next →</a>` : ''
+
+  const content = `
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+    <div>
+      <h1 style="font-size:20px;font-weight:700;color:var(--text)">⚡ Workflow Run History</h1>
+      <p style="color:var(--text3);font-size:12px;margin-top:2px">All workflow executions across all workflows — P18</p>
+    </div>
+    <div style="display:flex;gap:8px">
+      <a href="/workflows" class="btn btn-ghost btn-sm">← Workflows</a>
+    </div>
+  </div>
+
+  <!-- Stats row -->
+  <div class="grid-4" style="margin-bottom:20px">
+    <div class="stat-card">
+      <div class="stat-label">Total Runs (filtered)</div>
+      <div class="stat-value" style="color:var(--accent)">${totalRuns}</div>
+      <div class="stat-sub">page ${page} of ${totalPages || 1}</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Completed (this page)</div>
+      <div class="stat-value" style="color:var(--green)">${completedRuns}</div>
+      <div class="stat-sub">successful runs</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Failed (this page)</div>
+      <div class="stat-value" style="color:var(--red)">${failedRuns}</div>
+      <div class="stat-sub">need attention</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Avg Duration</div>
+      <div class="stat-value" style="color:var(--yellow);font-size:18px">${fmtDur(avgDur)}</div>
+      <div class="stat-sub">${runningRuns} currently running</div>
+    </div>
+  </div>
+
+  <!-- Filter bar -->
+  <div class="card" style="margin-bottom:16px;padding:14px 20px">
+    <form method="GET" action="/workflows/history" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <label style="font-size:11px;color:var(--text3)">Status Filter</label>
+        <select name="status" style="width:140px;padding:6px 10px;font-size:12px">
+          <option value="">All Statuses</option>
+          <option value="running" ${filterStatus==='running'?'selected':''}>Running</option>
+          <option value="completed" ${filterStatus==='completed'?'selected':''}>Completed</option>
+          <option value="failed" ${filterStatus==='failed'?'selected':''}>Failed</option>
+          <option value="cancelled" ${filterStatus==='cancelled'?'selected':''}>Cancelled</option>
+        </select>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <label style="font-size:11px;color:var(--text3)">Workflow Name</label>
+        <input name="workflow" value="${filterWorkflow}" placeholder="Filter by name..." style="width:200px;padding:6px 10px;font-size:12px">
+      </div>
+      <button type="submit" class="btn btn-primary btn-sm" style="height:32px">Filter</button>
+      ${filterStatus || filterWorkflow ? `<a href="/workflows/history" class="btn btn-ghost btn-sm" style="height:32px">Clear</a>` : ''}
+    </form>
+  </div>
+
+  <!-- Table -->
+  <div class="card" style="padding:0;overflow:hidden">
+    <div style="overflow-x:auto">
+    <table>
+      <thead>
+        <tr>
+          <th>Run ID</th>
+          <th>Workflow</th>
+          <th>Status</th>
+          <th>Trigger</th>
+          <th>By</th>
+          <th>Duration</th>
+          <th>Steps</th>
+          <th>Output / Error</th>
+          <th>Started</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${runs.length === 0
+          ? `<tr><td colspan="9" style="padding:40px;text-align:center;color:var(--text3)">
+              ${totalRuns === 0 ? 'No workflow runs recorded yet. Trigger a workflow to see history.' : 'No runs match current filters.'}
+             </td></tr>`
+          : rows}
+      </tbody>
+    </table>
+    </div>
+    ${totalPages > 1 ? `
+    <div style="padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px;align-items:center">
+      ${prevPage}
+      <span style="font-size:12px;color:var(--text3)">Page ${page} of ${totalPages} (${total} total runs)</span>
+      ${nextPage}
+    </div>` : ''}
+  </div>
+  `
+
+  return c.html(layout('Workflow History', content, '/workflows/history', 0, {
+    breadcrumbs: [{ label: 'Workflows', href: '/workflows' }, { label: 'Run History' }]
+  }))
+})
+
 // GET /workflows/:id — Workflow detail
 workflowsRoute.get('/:id', async (c) => {
   const db = c.env.DB

@@ -2,6 +2,9 @@
 // SOVEREIGN OS PLATFORM — SHARED HTML LAYOUT
 // P16: Header search bar, notification bell badge, dark mode toggle,
 //      collapsible sidebar sections, breadcrumbs, mobile-responsive
+// P18: Page transition loader bar, nav reorganization (merged P16/P17
+//      items into contextual groups), keyboard accessibility,
+//      performance resource hints, skip-to-content, sidebar search filter
 // ============================================================
 
 export interface LayoutOptions {
@@ -15,7 +18,7 @@ export interface LayoutOptions {
 export function layout(title: string, content: string, activePage: string = '', alertCount: number = 0, opts: LayoutOptions = {}): string {
   const { notifCount = 0, breadcrumbs = [] } = opts
 
-  // ---- Nav groups (collapsible) ----
+  // ---- Nav groups (collapsible) — P18: reorganized, P16+P17 merged into context ----
   const navSections = [
     {
       id: 'core',
@@ -40,20 +43,21 @@ export function layout(title: string, content: string, activePage: string = '', 
       id: 'governance',
       label: 'Governance',
       color: '#ef4444',
-      badge: 'P4',
       items: [
         { path: '/workspace', label: 'Workspace', icon: '◈' },
         { path: '/alerts', label: 'Alerts', icon: '◉', count: alertCount },
         { path: '/canon', label: 'Canon', icon: '▣' },
         { path: '/lanes', label: 'Lanes', icon: '⊟' },
         { path: '/onboarding', label: 'Onboarding', icon: '⬠' },
+        { path: '/policies', label: 'ABAC Policies', icon: '🔐' },
+        { path: '/alert-rules', label: 'Alert Rules', icon: '🔔' },
+        { path: '/remediation', label: 'Remediation', icon: '🛠️' },
       ]
     },
     {
       id: 'tenants',
       label: 'Tenants & API',
       color: '#22c55e',
-      badge: 'P5',
       items: [
         { path: '/tenants', label: 'Tenants', icon: '⊛' },
         { path: '/ai-assist', label: 'AI Assist', icon: '◎' },
@@ -66,66 +70,62 @@ export function layout(title: string, content: string, activePage: string = '', 
       id: 'observability',
       label: 'Observability',
       color: '#f59e0b',
-      badge: 'P8',
       items: [
-        { path: '/federation', label: 'Federation', icon: '🔗' },
-        { path: '/marketplace', label: 'Marketplace', icon: '🛒' },
+        { path: '/metrics', label: 'Metrics', icon: '📈' },
+        { path: '/metrics/snapshots', label: 'Metrics History', icon: '📷' },
         { path: '/audit', label: 'Audit Trail', icon: '🔏' },
-        { path: '/notifications', label: 'Notifications', icon: '🔔' },
-        { path: '/workflows', label: 'Workflows', icon: '⚡' },
-        { path: '/health-dashboard', label: 'Health', icon: '🏥' },
-        { path: '/portal', label: 'Portal', icon: '🏠' },
-      ]
-    },
-    {
-      id: 'policies',
-      label: 'Policies & Rules',
-      color: '#f97316',
-      badge: 'P10',
-      items: [
-        { path: '/reports', label: 'Reports', icon: '📊' },
-        { path: '/policies', label: 'ABAC Policies', icon: '🔐' },
-        { path: '/alert-rules', label: 'Alert Rules', icon: '🔔' },
-        { path: '/remediation', label: 'Remediation', icon: '🛠️' },
-        { path: '/events', label: 'Event Bus', icon: '📡' },
-        { path: '/docs', label: 'Dev Docs', icon: '📖' },
-      ]
-    },
-    {
-      id: 'advanced',
-      label: 'Advanced',
-      color: '#8b5cf6',
-      badge: 'P12',
-      items: [
-        { path: '/reports/subscriptions', label: 'Scheduled Reports', icon: '🗓️' },
-        { path: '/events/archive-stats', label: 'Event Archive', icon: '📦' },
-        { path: '/api/v2/docs', label: 'API v2', icon: '⚙' },
         { path: '/audit/deny-log', label: 'ABAC Deny Log', icon: '🔒' },
-        { path: '/portal/default/policies', label: 'Portal Policies', icon: '🛡️' },
         { path: '/audit/export-jobs', label: 'Export Jobs', icon: '📥' },
-        { path: '/notifications/rules', label: 'Notif Rules', icon: '🔔' },
+        { path: '/health-dashboard', label: 'Health', icon: '🏥' },
+        { path: '/events', label: 'Event Bus', icon: '📡' },
+        { path: '/events/archive-stats', label: 'Event Archive', icon: '📦' },
       ]
     },
     {
-      id: 'p16',
-      label: 'Platform P16',
+      id: 'workflows',
+      label: 'Workflows & Reports',
+      color: '#06b6d4',
+      items: [
+        { path: '/workflows', label: 'Workflows', icon: '⚡' },
+        { path: '/workflows/history', label: 'Run History', icon: '📋' },
+        { path: '/reports', label: 'Reports', icon: '📊' },
+        { path: '/reports/subscriptions', label: 'Scheduled Reports', icon: '🗓️' },
+      ]
+    },
+    {
+      id: 'notifications',
+      label: 'Notifications',
+      color: '#f97316',
+      items: [
+        { path: '/notifications', label: 'Inbox', icon: '🔔' },
+        { path: '/notifications/preferences', label: 'Preferences', icon: '⚙️' },
+        { path: '/notifications/rules', label: 'Rules', icon: '📋' },
+      ]
+    },
+    {
+      id: 'search',
+      label: 'Search & Discovery',
       color: '#10b981',
-      badge: 'P16',
       items: [
         { path: '/search', label: 'Search', icon: '🔍' },
-        { path: '/metrics', label: 'Metrics', icon: '📈' },
+        { path: '/search/analytics', label: 'Search Analytics', icon: '📊' },
       ]
     },
     {
-      id: 'p17',
-      label: 'Platform P17',
+      id: 'platform',
+      label: 'Platform Admin',
       color: '#8b5cf6',
-      badge: 'P17',
       items: [
-        { path: '/notifications/preferences', label: 'Notif Prefs', icon: '⚙️' },
-        { path: '/metrics/snapshots', label: 'Metrics History', icon: '📷' },
-        { path: '/search/analytics', label: 'Search Analytics', icon: '📊' },
         { path: '/admin', label: 'Admin Panel', icon: '🛡️' },
+        { path: '/admin/settings', label: 'Settings', icon: '⚙️' },
+        { path: '/admin/sessions', label: 'Sessions', icon: '👤' },
+        { path: '/admin/api-keys', label: 'Key Rotation', icon: '🔑' },
+        { path: '/federation', label: 'Federation', icon: '🔗' },
+        { path: '/marketplace', label: 'Marketplace', icon: '🛒' },
+        { path: '/portal', label: 'Portal', icon: '🏠' },
+        { path: '/portal/default/policies', label: 'Portal Policies', icon: '🛡️' },
+        { path: '/docs', label: 'Dev Docs', icon: '📖' },
+        { path: '/api/v2/docs', label: 'API v2', icon: '⚙' },
       ]
     },
   ]
@@ -134,9 +134,6 @@ export function layout(title: string, content: string, activePage: string = '', 
     const isActiveSection = section.items.some(item =>
       activePage === item.path || activePage.startsWith(item.path.split('?')[0].split('#')[0] + '/')
     )
-    const badgeHtml = section.badge
-      ? `<span class="nav-section-badge" style="background:${section.color}22;color:${section.color}">${section.badge}</span>`
-      : ''
     const chevron = `<span class="nav-chevron" id="chevron-${section.id}">${isActiveSection ? '▾' : '▸'}</span>`
     const items = section.items.map(item => {
       const isActive = activePage === item.path ||
@@ -144,7 +141,7 @@ export function layout(title: string, content: string, activePage: string = '', 
       const countBadge = (item as any).count > 0
         ? `<span style="background:var(--red);color:#fff;border-radius:10px;padding:0 5px;font-size:10px;font-weight:700;margin-left:auto">${(item as any).count}</span>`
         : ''
-      return `<a href="${item.path}" class="nav-item${isActive ? ' active' : ''}">
+      return `<a href="${item.path}" class="nav-item${isActive ? ' active' : ''}" data-nav-label="${item.label.toLowerCase()}">
         <span class="nav-icon">${item.icon}</span>
         <span class="nav-label">${item.label}</span>
         ${countBadge}
@@ -153,9 +150,9 @@ export function layout(title: string, content: string, activePage: string = '', 
 
     return `
       <div class="nav-group" id="group-${section.id}">
-        <div class="nav-group-header" onclick="toggleNavGroup('${section.id}')" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' ')toggleNavGroup('${section.id}')">
+        <div class="nav-group-header" onclick="toggleNavGroup('${section.id}')" role="button" tabindex="0" aria-expanded="${isActiveSection ? 'true' : 'false'}" aria-controls="items-${section.id}" onkeydown="if(event.key==='Enter'||event.key===' ')toggleNavGroup('${section.id}')">
+          <span class="nav-dot" style="background:${section.color}"></span>
           <span class="nav-group-label" style="color:${section.color}">${section.label}</span>
-          ${badgeHtml}
           ${chevron}
         </div>
         <div class="nav-group-items" id="items-${section.id}" style="${isActiveSection ? '' : 'display:none'}">
@@ -190,7 +187,9 @@ export function layout(title: string, content: string, activePage: string = '', 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${title} — Sovereign OS Platform</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
     /* ---- CSS Variables (dark/light theme) ---- */
     :root, [data-theme="dark"] {
@@ -628,6 +627,90 @@ export function layout(title: string, content: string, activePage: string = '', 
     .tier-2 { background: rgba(245,158,11,0.1); color: var(--yellow); border: 1px solid rgba(245,158,11,0.25); padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
     .tier-3 { background: rgba(239,68,68,0.1); color: var(--red); border: 1px solid rgba(239,68,68,0.25); padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
 
+    /* ---- P18: Page transition loader bar ---- */
+    #page-loader {
+      position: fixed;
+      top: 0; left: 0;
+      width: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--accent), var(--purple), var(--cyan));
+      z-index: 9999;
+      transition: width 0.3s ease, opacity 0.3s ease;
+      opacity: 0;
+      border-radius: 0 2px 2px 0;
+    }
+    #page-loader.loading {
+      opacity: 1;
+      width: 75%;
+    }
+    #page-loader.done {
+      opacity: 0;
+      width: 100%;
+    }
+
+    /* ---- P18: Skip to content accessibility ---- */
+    #skip-to-content {
+      position: absolute;
+      left: -9999px;
+      top: 0;
+      padding: 8px 16px;
+      background: var(--accent);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 600;
+      border-radius: 0 0 6px 6px;
+      z-index: 99999;
+      text-decoration: none;
+    }
+    #skip-to-content:focus { left: 50%; transform: translateX(-50%); }
+
+    /* ---- P18: Nav filter search ---- */
+    .nav-filter-wrap {
+      padding: 8px 8px 4px;
+      flex-shrink: 0;
+    }
+    .nav-filter-input {
+      width: 100%;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      color: var(--text2);
+      padding: 5px 9px;
+      font-size: 11px;
+      font-family: 'Inter', sans-serif;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .nav-filter-input:focus { border-color: var(--accent); color: var(--text); }
+    .nav-filter-input::placeholder { color: var(--text3); }
+
+    /* ---- P18: Nav dot indicator ---- */
+    .nav-dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    /* ---- P18: Status bar at bottom ---- */
+    .status-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 0 2px rgba(34,197,94,0.2);
+      animation: pulse-green 2s infinite;
+    }
+    @keyframes pulse-green {
+      0%, 100% { box-shadow: 0 0 0 2px rgba(34,197,94,0.2); }
+      50% { box-shadow: 0 0 0 4px rgba(34,197,94,0.1); }
+    }
+
     /* ---- Misc ---- */
     .section-title {
       font-size: 12px;
@@ -759,6 +842,12 @@ export function layout(title: string, content: string, activePage: string = '', 
   </style>
 </head>
 <body>
+  <!-- P18: Skip to main content (accessibility) -->
+  <a href="#main-content" id="skip-to-content">Skip to content</a>
+
+  <!-- P18: Page transition loader bar -->
+  <div id="page-loader" aria-hidden="true"></div>
+
   <!-- Mobile overlay -->
   <div class="sidebar-overlay" id="sidebar-overlay" onclick="closeSidebar()"></div>
 
@@ -766,14 +855,27 @@ export function layout(title: string, content: string, activePage: string = '', 
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-brand">
       <div class="brand-name">Sovereign OS</div>
-      <div class="brand-sub">Platform v1.7.0-P17</div>
+      <div class="brand-sub">Platform v1.8.0-P18</div>
     </div>
-    <nav class="nav-section" id="nav-section">
+    <div class="nav-filter-wrap">
+      <input
+        type="text"
+        class="nav-filter-input"
+        id="nav-filter"
+        placeholder="Filter nav..."
+        autocomplete="off"
+        aria-label="Filter navigation"
+      >
+    </div>
+    <nav class="nav-section" id="nav-section" role="navigation" aria-label="Platform navigation">
       ${navHtml}
     </nav>
     <div class="sidebar-footer">
-      No role collapse · No false verify<br>
-      P17 — Notification Preferences, Bulk Ops, Admin Panel
+      <div class="status-indicator">
+        <span class="status-dot"></span>
+        <span>Live · P18</span>
+      </div>
+      <div style="margin-top:3px;font-size:9px">No role collapse · No false verify</div>
     </div>
   </aside>
 
@@ -820,12 +922,12 @@ export function layout(title: string, content: string, activePage: string = '', 
     <div id="toast-container"></div>
 
     <!-- Page content -->
-    <main class="page-content">
+    <main class="page-content" id="main-content" tabindex="-1">
       ${content}
     </main>
   </div>
 
-  <!-- P16 Scripts: dark mode, sidebar, search shortcut, toast -->
+  <!-- P18 Scripts: page loader, nav filter, dark mode, sidebar, search shortcut, toast -->
   <script>
     // Dark mode
     (function() {
@@ -888,7 +990,7 @@ export function layout(title: string, content: string, activePage: string = '', 
 
     // Restore nav group states from localStorage
     (function() {
-      const groups = ['core','governance','tenants','observability','policies','advanced','p16','p17']
+      const groups = ['core','governance','tenants','observability','workflows','notifications','search','platform']
       groups.forEach(function(id) {
         try {
           const state = localStorage.getItem('nav-group-' + id)
@@ -939,6 +1041,87 @@ export function layout(title: string, content: string, activePage: string = '', 
       }
       checkSearchVisibility()
       window.addEventListener('resize', checkSearchVisibility)
+    })()
+
+    // P18: Page transition loading bar
+    (function() {
+      const loader = document.getElementById('page-loader')
+      if (!loader) return
+      // Show loader on link navigation
+      document.addEventListener('click', function(e) {
+        const a = e.target.closest('a[href]')
+        if (!a) return
+        const href = a.getAttribute('href')
+        if (!href || href.startsWith('#') || href.startsWith('javascript') || href.startsWith('mailto') || a.target === '_blank') return
+        if (href.startsWith('http') && !href.includes(window.location.hostname)) return
+        // Same-origin navigation — show loader
+        loader.className = 'loading'
+      })
+      document.addEventListener('submit', function(e) {
+        const f = e.target
+        if (f && f.tagName === 'FORM') loader.className = 'loading'
+      })
+      // On page load — finish
+      window.addEventListener('pageshow', function() {
+        loader.className = 'done'
+        setTimeout(function() { loader.className = ''; loader.style.width = ''; }, 350)
+      })
+      // Instant finish on DOMContentLoaded
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', function() {
+          loader.className = 'done'
+          setTimeout(function() { loader.className = '' }, 350)
+        })
+      } else {
+        // Already loaded
+        loader.className = 'done'
+        setTimeout(function() { loader.className = '' }, 350)
+      }
+    })()
+
+    // P18: Nav filter — quick filter navigation items
+    (function() {
+      const input = document.getElementById('nav-filter')
+      if (!input) return
+      input.addEventListener('input', function() {
+        const q = this.value.toLowerCase().trim()
+        const allItems = document.querySelectorAll('.nav-item[data-nav-label]')
+        const allGroups = document.querySelectorAll('.nav-group')
+        if (!q) {
+          // Restore original state
+          allItems.forEach(function(item) { item.style.display = '' })
+          allGroups.forEach(function(group) { group.style.display = '' })
+          return
+        }
+        // Show only matching items, expand their groups
+        allGroups.forEach(function(group) {
+          const id = group.id.replace('group-', '')
+          const items = group.querySelectorAll('.nav-item[data-nav-label]')
+          let hasMatch = false
+          items.forEach(function(item) {
+            const label = item.getAttribute('data-nav-label') || ''
+            if (label.includes(q)) {
+              item.style.display = ''
+              hasMatch = true
+            } else {
+              item.style.display = 'none'
+            }
+          })
+          if (hasMatch) {
+            group.style.display = ''
+            const groupItems = document.getElementById('items-' + id)
+            if (groupItems) groupItems.style.display = ''
+            const chevron = document.getElementById('chevron-' + id)
+            if (chevron) chevron.textContent = '▾'
+          } else {
+            group.style.display = 'none'
+          }
+        })
+      })
+      // Escape clears filter
+      input.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') { this.value = ''; this.dispatchEvent(new Event('input')); this.blur() }
+      })
     })()
   </script>
 </body>

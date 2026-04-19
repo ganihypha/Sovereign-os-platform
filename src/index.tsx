@@ -288,8 +288,8 @@ app.get('/health', (c) => {
   return c.json({
     status: 'ok',
     platform: 'Sovereign OS Platform',
-    version: '1.7.0-P17',
-    phase: 'P17 — Notification Preferences, Bulk Ops, Audit Pagination, Metrics Snapshots, Admin Panel, Search Analytics',
+    version: '1.8.0-P18',
+    phase: 'P18 — UI/UX Upgrade, Nav Reorganization, Workflow History, Performance, Bug Fixes',
     persistence: repo.isPersistent ? 'd1' : 'in-memory',
     auth_configured: !!c.env.PLATFORM_API_KEY,
     kv_rate_limiter: !!c.env.RATE_LIMITER_KV ? 'kv-enforced' : 'in-memory-partial',
@@ -313,8 +313,8 @@ app.get('/status', async (c) => {
     return c.json({
       status: 'operational',
       platform: 'Sovereign OS Platform',
-      version: '1.7.0-P17',
-      phase: 'P17 — Notification Preferences, Bulk Ops, Audit Pagination, Metrics Snapshots, Admin Panel, Search Analytics',
+      version: '1.8.0-P18',
+      phase: 'P18 — UI/UX Upgrade, Nav Reorganization, Workflow History, Performance, Bug Fixes',
       persistence: repo.isPersistent ? 'd1-persistent' : 'in-memory-ephemeral',
       auth_configured: !!c.env.PLATFORM_API_KEY,
       kv_rate_limiter: !!c.env.RATE_LIMITER_KV ? 'kv-enforced' : 'in-memory-partial',
@@ -393,6 +393,14 @@ app.get('/status', async (c) => {
         search_analytics: 'active',         // P17 — /search/analytics
         search_bookmarks: 'active',         // P17 — localStorage bookmarks
         audit_search_daterange: 'active',   // P17 — /audit/search date+sort filters
+        // P18 new surfaces
+        workflow_run_history: 'active',     // P18 — /workflows/history
+        nav_reorganization: 'active',       // P18 — merged nav groups (8 contextual)
+        page_transition_loader: 'active',   // P18 — NProgress-style loading bar
+        nav_filter_search: 'active',        // P18 — live filter in sidebar nav
+        policies_simulate_fix: 'active',    // P18 — fixed CF dynamic import error
+        apiv1_root_fix: 'active',           // P18 — fixed /api/v1 root 500
+        skip_to_content: 'active',          // P18 — accessibility skip link
       },
       counts: {
         sessions: sessions.length,

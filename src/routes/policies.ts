@@ -10,6 +10,7 @@ import { layout } from '../layout'
 import type { Env } from '../index'
 import {
   getAllPolicies, createPolicy, updatePolicyStatus, deletePolicy,
+  loadPolicies, enforceAbac,
   SUBJECT_TYPE_OPTIONS, RESOURCE_TYPE_OPTIONS, ACTION_OPTIONS_ABAC,
   type Policy
 } from '../lib/abacService'
@@ -306,7 +307,7 @@ export function createPoliciesRoute() {
       return c.json({ error: 'Required fields: subject_type, subject_value, resource_type, action' }, 400)
     }
 
-    const { loadPolicies, enforceAbac } = await import('../lib/abacService')
+    // P18 fix: use direct import instead of dynamic import (CF Workers don't support dynamic import)
     const policies = await loadPolicies(c.env.DB, tenant_id || 'tenant-default')
     const ctx = { subject_type, subject_value, resource_type, action, tenant_id }
     const decision = enforceAbac(policies, ctx)

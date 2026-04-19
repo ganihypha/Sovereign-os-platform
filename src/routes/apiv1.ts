@@ -39,13 +39,35 @@ export function createApiV1Route() {
   // PUBLIC ROUTES — no auth required
   // ============================================================
 
+  // GET /api/v1 — Root path handler (P18 fix: was 500)
+  app.get('/', (c) => {
+    return c.json({
+      status: 'ok',
+      platform: 'Sovereign OS Platform',
+      api: 'Public API Gateway v1',
+      version: '1.8.0-P18',
+      endpoints: [
+        { path: '/api/v1/health', auth: 'none', description: 'API health check' },
+        { path: '/api/v1/docs', auth: 'none', description: 'API documentation' },
+        { path: '/api/v1/metrics', auth: 'bearer', description: 'Platform metrics (sanitized)' },
+        { path: '/api/v1/tenants', auth: 'bearer', description: 'Tenant list (sanitized)' },
+        { path: '/api/v1/sessions', auth: 'bearer', description: 'Active sessions (sanitized)' },
+        { path: '/api/v1/status', auth: 'bearer', description: 'Platform status' },
+        { path: '/api/v1/metrics-history', auth: 'bearer', description: 'Time-series metrics snapshots' },
+        { path: '/api/v1/audit-events', auth: 'bearer', description: 'Audit log (sanitized, read-only)' },
+      ],
+      docs: '/api/v1/docs',
+      timestamp: new Date().toISOString(),
+    })
+  })
+
   // GET /api/v1/health — Public API health check
   app.get('/health', (c) => {
     return c.json({
       status: 'ok',
       platform: 'Sovereign OS Platform',
-      version: '0.8.0-P8',
-      phase: 'P8 — Federated Governance & Advanced Platform Capabilities',
+      version: '1.8.0-P18',
+      phase: 'P18 — UI/UX Upgrade, Nav Reorganization, Workflow History, Performance',
       api_version: 'v1',
       timestamp: new Date().toISOString(),
     })
