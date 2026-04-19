@@ -539,15 +539,17 @@ function page500(path: string, errMsg: string): string {
 }
 
 // P19: Custom 404 catch-all — MUST be last route
-app.notFound(async (c) => {
-  const path = new URL(c.req.url).pathname
-  // Log 404 to error_log D1 (fire-and-catch)
-  if (c.env.DB) {
-    c.env.DB.prepare(
-      `INSERT INTO error_log (path, method, status_code, error_message) VALUES (?, ?, 404, 'Not Found')`
-    ).bind(path, c.req.method).run().catch(() => {})
+// Note: app.get('*') catches unmatched GET routes before notFound handler
+app.all('*', (c) => {
+  const path = c.req.path || '/'
+  if (path.startsWith('/api/')) {
+    return c.json({ error: 'NOT_FOUND', message: `No route found for ${c.req.method} ${path}` }, 404)
   }
-  // JSON for API paths, HTML for page paths
+  return c.html(page404(path), 404)
+})
+
+app.notFound((c) => {
+  const path = c.req.path || '/'
   if (path.startsWith('/api/')) {
     return c.json({ error: 'NOT_FOUND', message: `No route found for ${c.req.method} ${path}` }, 404)
   }
@@ -555,15 +557,17 @@ app.notFound(async (c) => {
 })
 
 // P19: Custom 500 error handler
-app.onError(async (err, c) => {
-  const path = new URL(c.req.url).pathname
+app.onError((err, c) => {
+  const path = c.req.path || '/'
   const errMsg = err instanceof Error ? err.message : 'Unknown error'
   // Log to error_log D1 (fire-and-catch)
-  if (c.env.DB) {
-    c.env.DB.prepare(
-      `INSERT INTO error_log (path, method, status_code, error_message, stack_hint) VALUES (?, ?, 500, ?, ?)`
-    ).bind(path, c.req.method, errMsg, err instanceof Error ? (err.stack || '').substring(0, 200) : '').run().catch(() => {})
-  }
+  try {
+    if (c.env.DB) {
+      c.env.DB.prepare(
+        `INSERT INTO error_log (path, method, status_code, error_message, stack_hint) VALUES (?, ?, 500, ?, ?)`
+      ).bind(path, c.req.method, errMsg, err instanceof Error ? (err.stack || '').substring(0, 200) : '').run().catch(() => {})
+    }
+  } catch (_e) { /* never throw */ }
   // JSON for API paths, HTML for page paths
   if (path.startsWith('/api/')) {
     return c.json({ error: 'INTERNAL_ERROR', message: 'An internal error occurred.' }, 500)
