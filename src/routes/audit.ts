@@ -1,11 +1,13 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — AUDIT TRAIL SURFACE (P8+P14)
+// SOVEREIGN OS PLATFORM — AUDIT TRAIL SURFACE (P8+P14+P15)
 // P14: Filter by event type quick-select (abac.denied, webhook.failed, archive.ran)
 //       ABAC deny log section, CSV export (GET /audit?format=csv)
+// P15: Export job management UI (GET /audit/export-jobs)
 //
 // GET /audit              — Audit log v2 view + hash verification
 // GET /audit?format=csv   — P14: Export audit log as CSV
 // GET /audit/deny-log     — P14: ABAC deny log view
+// GET /audit/export-jobs  — P15: Export job management page
 // GET /audit/verify/:id   — Verify single event hash
 // POST /audit/verify-all  — Re-verify all recent events (returns report)
 //
@@ -389,6 +391,138 @@ export function createAuditRoute() {
       </div>
     `
     return c.html(layout('ABAC Deny Log — P14', content, 'audit'))
+  })
+
+  // ============================================================
+  // GET /audit/export-jobs — P15: Export Job Management UI
+  // ============================================================
+  route.get('/export-jobs', async (c) => {
+    const isAuth = await isAuthenticated(c, c.env)
+    if (!isAuth) return c.redirect('/dashboard')
+
+    const db = c.env.DB
+    let jobs: any[] = []
+    let totalJobs = 0
+    let pendingJobs = 0
+    let completedJobs = 0
+
+    if (db) {
+      try {
+        // Clean up old jobs > 30 days
+        await db.prepare(
+          `DELETE FROM audit_export_jobs WHERE created_at < datetime('now', '-30 days')`
+        ).run().catch(() => {})
+
+        const cnt = await db.prepare(`SELECT COUNT(*) as c FROM audit_export_jobs`).first<{ c: number }>()
+        totalJobs = cnt?.c || 0
+
+        const pend = await db.prepare(`SELECT COUNT(*) as c FROM audit_export_jobs WHERE status = 'pending'`).first<{ c: number }>()
+        pendingJobs = pend?.c || 0
+
+        const comp = await db.prepare(`SELECT COUNT(*) as c FROM audit_export_jobs WHERE status = 'completed'`).first<{ c: number }>()
+        completedJobs = comp?.c || 0
+
+        const rows = await db.prepare(
+          `SELECT id, format, filter_json, status, row_count, created_by, result_url, completed_at, created_at
+           FROM audit_export_jobs ORDER BY created_at DESC LIMIT 100`
+        ).all<any>()
+        jobs = rows.results || []
+      } catch { /* non-blocking */ }
+    }
+
+    function statusBadge(status: string): string {
+      const map: Record<string, string> = {
+        completed: 'background:rgba(34,197,94,0.08);color:#22c55e;border:1px solid rgba(34,197,94,0.2)',
+        pending:   'background:rgba(251,191,36,0.08);color:#fbbf24;border:1px solid rgba(251,191,36,0.2)',
+        failed:    'background:rgba(239,68,68,0.08);color:#ef4444;border:1px solid rgba(239,68,68,0.2)',
+      }
+      return `<span style="padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;${map[status] || map.pending}">${status}</span>`
+    }
+
+    const jobRows = jobs.map(j => {
+      let filterDisplay = '—'
+      try {
+        const f = JSON.parse(j.filter_json || '{}')
+        const parts = []
+        if (f.event_type) parts.push(`event:${f.event_type}`)
+        if (f.tenant) parts.push(`tenant:${f.tenant}`)
+        filterDisplay = parts.length > 0 ? parts.join(', ') : 'all events'
+      } catch { /* ignore */ }
+
+      const downloadLink = j.status === 'completed'
+        ? `<a href="/audit?format=csv${j.filter_json ? '&' + new URLSearchParams(JSON.parse(j.filter_json || '{}')).toString() : ''}" style="color:#4f8ef7;font-size:10px;text-decoration:none">⬇ Re-download</a>`
+        : `<span style="color:var(--text3);font-size:10px">—</span>`
+
+      return `<tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:8px 12px;font-size:10px;font-family:monospace;color:var(--text3)">${j.id}</td>
+        <td style="padding:8px 12px;font-size:11px;color:var(--text2);text-transform:uppercase;font-weight:600">${j.format || 'csv'}</td>
+        <td style="padding:8px 12px;font-size:11px;color:var(--text3)">${filterDisplay}</td>
+        <td style="padding:8px 12px">${statusBadge(j.status || 'pending')}</td>
+        <td style="padding:8px 12px;font-size:11px;color:var(--accent);font-weight:600">${j.row_count ?? '—'}</td>
+        <td style="padding:8px 12px;font-size:10px;color:var(--text3)">${j.created_by || 'ui'}</td>
+        <td style="padding:8px 12px;font-size:10px;color:var(--text3)">${(j.completed_at || '').slice(0,16) || '—'}</td>
+        <td style="padding:8px 12px;font-size:10px;color:var(--text3)">${(j.created_at || '').slice(0,16)}</td>
+        <td style="padding:8px 12px">${downloadLink}</td>
+      </tr>`
+    }).join('')
+
+    const content = `
+      <div class="page-header" style="margin-bottom:24px">
+        <div>
+          <h1 style="font-size:20px;font-weight:700;color:var(--text);margin:0">📥 Audit Export Jobs</h1>
+          <p style="color:var(--text2);font-size:12px;margin:4px 0 0">P15 — Export job management · auto-cleanup after 30 days</p>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <a href="/audit" style="background:var(--bg2);color:var(--text2);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:11px;text-decoration:none">← Audit Trail</a>
+          <a href="/audit?format=csv" style="background:#22c55e;color:#fff;border:none;border-radius:6px;padding:7px 14px;font-size:11px;font-weight:600;text-decoration:none">⬇ New CSV Export</a>
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;margin-bottom:24px">
+        ${[
+          { label: 'Total Jobs', val: totalJobs, color: '#4f8ef7' },
+          { label: 'Completed', val: completedJobs, color: '#22c55e' },
+          { label: 'Pending', val: pendingJobs, color: '#fbbf24' },
+          { label: 'Retention', val: '30 days', color: '#9aa3b2' },
+        ].map(s => `
+          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px">
+            <div style="font-size:10px;color:var(--text3);text-transform:uppercase;margin-bottom:4px">${s.label}</div>
+            <div style="font-size:22px;font-weight:700;color:${s.color}">${s.val}</div>
+          </div>
+        `).join('')}
+      </div>
+
+      <!-- Jobs Table -->
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:auto">
+        <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px">
+          <span style="font-weight:600;color:var(--text);font-size:13px">Export Job History</span>
+          <span style="color:var(--text3);font-size:11px">${jobs.length} jobs (last 100)</span>
+          <span style="margin-left:auto;font-size:10px;color:var(--text3)">Jobs older than 30 days are auto-removed</span>
+        </div>
+        <table style="width:100%;border-collapse:collapse;min-width:800px">
+          <thead><tr style="background:var(--bg3)">
+            ${['Job ID','Format','Filters','Status','Rows','Created By','Completed','Created At','Download'].map(h =>
+              `<th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text3);font-weight:500">${h}</th>`
+            ).join('')}
+          </tr></thead>
+          <tbody>
+            ${jobs.length === 0
+              ? `<tr><td colspan="9" style="padding:32px;text-align:center;color:var(--text3);font-size:12px">No export jobs yet. Run a CSV export from the <a href="/audit" style="color:var(--accent)">Audit Trail</a> page.</td></tr>`
+              : jobRows
+            }
+          </tbody>
+        </table>
+      </div>
+
+      <div style="margin-top:16px;padding:12px 16px;background:rgba(79,142,247,0.05);border:1px solid rgba(79,142,247,0.15);border-radius:8px;font-size:11px;color:var(--text3)">
+        <span style="color:#4f8ef7;font-weight:600">P15 Export Jobs:</span>
+        Each CSV export via <code>GET /audit?format=csv</code> is logged here.
+        Re-download links regenerate the export with the same filters.
+        Jobs are automatically purged after 30 days.
+      </div>
+    `
+    return c.html(layout('Audit Export Jobs — P15', content, 'audit'))
   })
 
   // ============================================================

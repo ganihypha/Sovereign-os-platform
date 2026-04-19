@@ -125,6 +125,20 @@ async function handleDeliveryFailure(
         tenant_id: item.tenant_id
       }).catch(() => {})
     } catch { /* non-blocking */ }
+
+    // P15: Write webhook.delivery_failed to audit_log_v2
+    try {
+      const { writeAuditEvent } = await import('./auditService')
+      writeAuditEvent(db, {
+        event_type: 'webhook.delivery_failed',
+        object_type: 'webhook_delivery_queue',
+        object_id: item.id,
+        actor: 'system:webhook-queue',
+        tenant_id: item.tenant_id || 'default',
+        payload_summary: `Webhook final failure after ${newAttemptCount} attempts. Connector: ${item.connector_id}`,
+        surface: 'webhooks'
+      }).catch(() => {})
+    } catch { /* non-blocking */ }
   } else {
     // Schedule retry
     const delaySecs = getNextAttemptDelay(newAttemptCount)

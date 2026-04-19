@@ -157,6 +157,20 @@ export async function runEventArchive(
         const { notifyEventArchive } = await import('./platformNotificationService')
         notifyEventArchive(db, { archived_count: archivedCount }).catch(() => {})
       } catch { /* non-blocking */ }
+
+      // P15: Write event.archived to audit_log_v2
+      try {
+        const { writeAuditEvent } = await import('./auditService')
+        writeAuditEvent(db, {
+          event_type: 'event.archived',
+          object_type: 'event_archives',
+          object_id: `batch-${Date.now()}`,
+          actor: 'system:archive',
+          tenant_id: 'default',
+          payload_summary: `Archive cycle completed: ${archivedCount} events archived (retention=${days}d)`,
+          surface: 'events'
+        }).catch(() => {})
+      } catch { /* non-blocking */ }
     }
 
     return result

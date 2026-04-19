@@ -163,6 +163,18 @@ export function layout(title: string, content: string, activePage: string = '', 
       <span class="nav-label">${n.label}</span>
       ${badgeHtml}
     </a>`
+  }).join('') + `<div class="nav-section-label">P15</div>` + [
+    { path: '/audit/export-jobs', label: 'Export Jobs', icon: '📥', badge: 'P15' },
+    { path: '/notifications/rules', label: 'Notif Rules', icon: '🔔', badge: 'P15' },
+    { path: '/search', label: 'Search', icon: '🔍', badge: 'P15' },
+  ].map(n => {
+    const isActive = activePage === n.path || (n.path !== '/search' && activePage.startsWith(n.path))
+    const badgeHtml = `<span style="background:#06b6d4;color:#000;border-radius:10px;padding:0 5px;font-size:9px;font-weight:700;margin-left:auto">${n.badge}</span>`
+    return `<a href="${n.path}" class="nav-item${isActive ? ' active' : ''}">
+      <span class="nav-icon">${n.icon}</span>
+      <span class="nav-label">${n.label}</span>
+      ${badgeHtml}
+    </a>`
   }).join('')
 
   return `<!DOCTYPE html>

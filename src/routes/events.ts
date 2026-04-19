@@ -50,7 +50,7 @@ export function createEventsRoute() {
     // P13: trigger auto-archive lazily on each /events load
     if (c.env.DB) runEventArchive(c.env.DB).catch(() => {})
 
-    const [{ events, total }, stats, archiveStats, analytics] = await Promise.all([
+    const [{ events, total }, stats, archiveStats, analytics, retentionCfg] = await Promise.all([
       c.env.DB ? getEvents(c.env.DB, {
         severity: severity || undefined,
         source_surface: surface || undefined,
@@ -61,7 +61,8 @@ export function createEventsRoute() {
       }) : { events: [], total: 0 },
       c.env.DB ? getEventStats(c.env.DB) : { total: 0, unread: 0, by_severity: {}, by_surface: {}, recent_types: [] },
       c.env.DB ? getArchiveStats(c.env.DB) : { archived_total: 0, oldest_active_age_days: null, retention_days: 30, auto_archive_enabled: true, last_archive_entry: null },
-      c.env.DB ? getEventTypeAnalytics(c.env.DB) : { top_event_types: [], events_per_day: [] }
+      c.env.DB ? getEventTypeAnalytics(c.env.DB) : { top_event_types: [], events_per_day: [] },
+      c.env.DB ? getRetentionConfig(c.env.DB) : { retention_days: 30, auto_archive_enabled: true, archive_batch_size: 100 }
     ])
 
     const totalPages = Math.ceil(total / limit)
@@ -193,11 +194,28 @@ export function createEventsRoute() {
         </div>
 
           <div class="card" style="margin-bottom:16px">
-            <div class="card-header"><div class="card-title" style="font-size:12px">Archive & Retention</div></div>
+            <div class="card-header"><div class="card-title" style="font-size:12px">Archive & Retention — P13+P15</div></div>
             <div style="padding:8px 16px">
               <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Retention: <strong style="color:var(--text)">${archiveStats.retention_days} days</strong> | Auto: <strong style="color:${archiveStats.auto_archive_enabled ? '#4ade80' : '#f87171'}">${archiveStats.auto_archive_enabled ? 'ON' : 'OFF'}</strong></div>
               <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Archived Total: <strong style="color:var(--text)">${archiveStats.archived_total}</strong></div>
+              <div style="font-size:11px;color:var(--text3);margin-bottom:8px">Batch Size: <strong style="color:#4f8ef7">${retentionCfg.archive_batch_size}</strong> events/cycle</div>
               ${archiveStats.oldest_active_age_days !== null ? `<div style="font-size:11px;color:var(--text3);margin-bottom:8px">Oldest Active: <strong style="color:${archiveStats.oldest_active_age_days > archiveStats.retention_days ? '#f87171' : 'var(--text)'}">${archiveStats.oldest_active_age_days}d</strong></div>` : ''}
+              <form action="/events/retention" method="POST" style="margin-bottom:8px">
+                <div style="margin-bottom:6px">
+                  <label style="font-size:9px;color:var(--text3);display:block;margin-bottom:2px">Retention Days</label>
+                  <input name="retention_days" type="number" value="${archiveStats.retention_days}" min="1" max="365" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:4px 8px;color:var(--text);font-size:11px">
+                </div>
+                <div style="margin-bottom:6px">
+                  <label style="font-size:9px;color:var(--text3);display:block;margin-bottom:2px">Batch Size (events/cycle)</label>
+                  <input name="batch_size" type="number" value="${retentionCfg.archive_batch_size}" min="1" max="10000" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:4px 8px;color:var(--text);font-size:11px">
+                </div>
+                <div style="margin-bottom:6px">
+                  <label style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--text3);cursor:pointer">
+                    <input type="checkbox" name="auto_archive_enabled" value="1" ${archiveStats.auto_archive_enabled ? 'checked' : ''}> Auto-archive enabled
+                  </label>
+                </div>
+                <button type="submit" style="width:100%;background:rgba(79,142,247,0.15);color:#4f8ef7;border:1px solid rgba(79,142,247,0.3);border-radius:4px;padding:5px 8px;font-size:10px;font-weight:600;cursor:pointer">Save Config</button>
+              </form>
               <form action="/events/archive-old" method="POST">
                 <button type="submit" style="width:100%;background:rgba(251,191,36,0.1);color:#fbbf24;border:1px solid rgba(251,191,36,0.3);border-radius:4px;padding:5px 8px;font-size:10px;font-weight:600;cursor:pointer">Run Archive Now</button>
               </form>
@@ -316,14 +334,16 @@ export function createEventsRoute() {
     return c.json({ archive: archiveStats, analytics })
   })
 
-  // POST /events/retention — P13: update retention config
+  // POST /events/retention — P13+P15: update retention config (now includes batch_size)
   route.post('/retention', async (c) => {
     if (!c.env.DB) return c.json({ error: 'DB not available' }, 503)
     const body = await c.req.parseBody()
     const days = parseInt(body.retention_days as string || '30', 10)
     const enabled = body.auto_archive_enabled !== undefined ? 'true' : 'false'
+    const batchSize = parseInt(body.batch_size as string || '100', 10)
     await updateRetentionConfig(c.env.DB, 'retention_days', String(Math.max(1, Math.min(365, days))))
     await updateRetentionConfig(c.env.DB, 'auto_archive_enabled', enabled)
+    await updateRetentionConfig(c.env.DB, 'batch_size', String(Math.max(1, Math.min(10000, batchSize))))
     return c.redirect('/events')
   })
 

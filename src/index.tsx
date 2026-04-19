@@ -1,6 +1,6 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — MAIN ENTRY (P14 — Alert Rules ABAC UI, Portal Policies, Tenant ABAC Middleware, Health Drill-down, Audit Trail Improvements, Notification Integration)
-// Version: 1.4.0-P14
+// SOVEREIGN OS PLATFORM — MAIN ENTRY (P15 — Audit Export Jobs, batch_size UI, Notification Rules, Audit Event Writes, Report Delivery, Search)
+// Version: 1.5.0-P15
 // Platform: Cloudflare Pages + Workers
 // Hono Framework — Edge-first
 // ============================================================
@@ -70,6 +70,9 @@ import { createDocsRoute } from './routes/docs'
 // Route imports — P12 new surfaces
 import { createReportSubscriptionsRoute } from './routes/reportSubscriptions'
 
+// Route import — P15 new surfaces
+import { createSearchRoute } from './routes/search'
+
 export type Env = {
   DB?: D1Database
   RATE_LIMITER_KV?: KVNamespace   // P6: KV-backed distributed rate limiter (optional — falls back to in-memory)
@@ -84,6 +87,7 @@ export type Env = {
   // P10: no new required secrets. ABAC, alert rules, API v2, reports use existing D1 + KV.
   // P11: no new required secrets. Remediation, events, docs use existing D1 + KV.
   // P12: no new required secrets. ABAC middleware, report subscriptions, webhook queue, API key permissions use existing D1 + KV.
+  // P15: no new required secrets. Search, notification rules, audit export jobs, delivery log use existing D1 + KV.
 }
 
 const app = new Hono<{ Bindings: Env }>()
@@ -207,6 +211,9 @@ app.route('/docs', createDocsRoute())
 // P12: Report Subscriptions (scheduled snapshots)
 app.route('/reports/subscriptions', createReportSubscriptionsRoute())
 
+// P15: Platform-wide unified search
+app.route('/search', createSearchRoute())
+
 // P6: Tenant namespace path routing — /t/:slug/*
 // P7: Injects tenant branding CSS into routing context
 // P14: Tenant ABAC enforcement for mutation paths
@@ -269,8 +276,8 @@ app.get('/health', (c) => {
   return c.json({
     status: 'ok',
     platform: 'Sovereign OS Platform',
-    version: '1.4.0-P14',
-    phase: 'P14 — Alert Rules ABAC UI, Portal Policies, Tenant ABAC Middleware, Health Drill-down, Audit Improvements, Notification Integration',
+    version: '1.5.0-P15',
+    phase: 'P15 — Audit Export Jobs, batch_size UI, Notification Rules, Audit Event Writes, Report Delivery Status, Search',
     persistence: repo.isPersistent ? 'd1' : 'in-memory',
     auth_configured: !!c.env.PLATFORM_API_KEY,
     kv_rate_limiter: !!c.env.RATE_LIMITER_KV ? 'kv-enforced' : 'in-memory-partial',
@@ -294,8 +301,8 @@ app.get('/status', async (c) => {
     return c.json({
       status: 'operational',
       platform: 'Sovereign OS Platform',
-      version: '1.4.0-P14',
-      phase: 'P14 — Alert Rules ABAC UI, Portal Policies, Tenant ABAC Middleware, Health Drill-down, Audit Improvements, Notification Integration',
+      version: '1.5.0-P15',
+      phase: 'P15 — Audit Export Jobs, batch_size UI, Notification Rules, Audit Event Writes, Report Delivery Status, Search',
       persistence: repo.isPersistent ? 'd1-persistent' : 'in-memory-ephemeral',
       auth_configured: !!c.env.PLATFORM_API_KEY,
       kv_rate_limiter: !!c.env.RATE_LIMITER_KV ? 'kv-enforced' : 'in-memory-partial',
@@ -368,7 +375,7 @@ app.get('/status', async (c) => {
     return c.json({
       status: 'degraded',
       platform: 'Sovereign OS Platform',
-      version: '1.4.0-P14',
+      version: '1.5.0-P15',
       error: 'Could not read platform state',
       persistence: 'unknown',
       timestamp: new Date().toISOString(),

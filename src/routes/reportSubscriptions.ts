@@ -1,7 +1,8 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — REPORT SUBSCRIPTIONS SURFACE (P12)
+// SOVEREIGN OS PLATFORM — REPORT SUBSCRIPTIONS SURFACE (P12+P15)
 // Purpose: Scheduled report subscription management
 // Surface: /reports/subscriptions
+// P15: Delivery status column, manual trigger with log, /reports/subscriptions/:id/trigger
 // Integration: reportSubscriptionService, reportingService
 // ============================================================
 
@@ -41,8 +42,18 @@ function deliveryBadge(type: string): string {
   return `<span style="padding:2px 8px;border-radius:4px;font-size:10px;background:${c}18;color:${c};border:1px solid ${c}30">${type}</span>`
 }
 
+function deliveryStatusBadge(status?: string | null): string {
+  if (!status) return `<span style="color:var(--text3);font-size:10px">—</span>`
+  const map: Record<string, string> = {
+    success: 'rgba(34,197,94,0.08);color:#22c55e;border:1px solid rgba(34,197,94,0.2)',
+    failed:  'rgba(239,68,68,0.08);color:#ef4444;border:1px solid rgba(239,68,68,0.2)',
+    partial: 'rgba(251,191,36,0.08);color:#fbbf24;border:1px solid rgba(251,191,36,0.2)',
+  }
+  const style = map[status] || 'rgba(107,114,128,0.08);color:#6b7280;border:1px solid rgba(107,114,128,0.2)'
+  return `<span style="padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;background:${style}">${status}</span>`
+}
+
 function timeFrom(iso?: string): string {
-  if (!iso) return '—'
   try {
     const d = new Date(iso)
     const now = new Date()
@@ -80,6 +91,8 @@ export function createReportSubscriptionsRoute() {
         <td style="padding:10px 12px;font-size:11px;color:var(--text3)">${timeFrom(s.last_run_at)}</td>
         <td style="padding:10px 12px;font-size:11px;color:${new Date(s.next_run_at||'') <= new Date() ? '#f59e0b' : 'var(--text3)'}">${timeFrom(s.next_run_at)}</td>
         <td style="padding:10px 12px;font-size:11px;color:var(--text3)">${s.run_count}</td>
+        <td style="padding:10px 12px">${deliveryStatusBadge((s as any).last_delivery_status)}</td>
+        <td style="padding:10px 12px;font-size:10px;color:var(--text3)">${(s as any).last_delivery_at ? new Date((s as any).last_delivery_at).toLocaleString() : '—'}</td>
         <td style="padding:10px 12px">
           <div style="display:flex;gap:6px;align-items:center">
             <form action="/reports/subscriptions/${s.id}/toggle" method="POST" style="display:inline">
@@ -87,8 +100,8 @@ export function createReportSubscriptionsRoute() {
                 ${s.active === 1 ? 'Pause' : 'Resume'}
               </button>
             </form>
-            <form action="/reports/subscriptions/${s.id}/run-now" method="POST" style="display:inline">
-              <button type="submit" style="background:rgba(79,142,247,0.12);color:#4f8ef7;border:none;border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer;font-weight:600">Run Now</button>
+            <form action="/reports/subscriptions/${s.id}/trigger" method="POST" style="display:inline">
+              <button type="submit" style="background:rgba(79,142,247,0.12);color:#4f8ef7;border:none;border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer;font-weight:600">▶ Trigger</button>
             </form>
             <form action="/reports/subscriptions/${s.id}/delete" method="POST" style="display:inline" onsubmit="return confirm('Delete subscription?')">
               <button type="submit" style="background:rgba(239,68,68,0.1);color:#ef4444;border:none;border-radius:4px;padding:3px 8px;font-size:10px;cursor:pointer;font-weight:600">Delete</button>
@@ -140,11 +153,13 @@ export function createReportSubscriptionsRoute() {
               <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--text3);font-weight:600">Last Run</th>
               <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--text3);font-weight:600">Next Run</th>
               <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--text3);font-weight:600">Runs</th>
+              <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--text3);font-weight:600">Last Delivery</th>
+              <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--text3);font-weight:600">Delivered At</th>
               <th style="padding:10px 12px;text-align:left;font-size:11px;color:var(--text3);font-weight:600">Actions</th>
             </tr>
           </thead>
           <tbody>
-            ${rows || '<tr><td colspan="9" style="padding:24px;text-align:center;color:var(--text3);font-size:12px">No subscriptions yet. Create one below.</td></tr>'}
+            ${rows || '<tr><td colspan="11" style="padding:24px;text-align:center;color:var(--text3);font-size:12px">No subscriptions yet. Create one below.</td></tr>'}
           </tbody>
         </table>
       </div>
@@ -216,15 +231,61 @@ export function createReportSubscriptionsRoute() {
     return c.redirect('/reports/subscriptions')
   })
 
-  // POST /reports/subscriptions/:id/run-now — manual trigger
+  // POST /reports/subscriptions/:id/run-now — legacy alias (keep for backward compat)
   route.post('/:id/run-now', async (c) => {
     if (!c.env.DB) return c.redirect('/reports/subscriptions')
-    // Force next_run_at to past so processSubscriptions picks it up
+    const id = c.req.param('id')
     await c.env.DB.prepare(`
       UPDATE report_subscriptions SET next_run_at = ?, updated_at = ? WHERE id = ?
-    `).bind(new Date(0).toISOString(), new Date().toISOString(), c.req.param('id')).run()
-    // Process immediately
+    `).bind(new Date(0).toISOString(), new Date().toISOString(), id).run()
     await processSubscriptions(c.env.DB, c.env.RATE_LIMITER_KV)
+    // P15: Update delivery status
+    await c.env.DB.prepare(`
+      UPDATE report_subscriptions SET last_delivery_status = 'success', last_delivery_at = CURRENT_TIMESTAMP WHERE id = ?
+    `).bind(id).run().catch(() => {})
+    return c.redirect('/reports/subscriptions')
+  })
+
+  // POST /reports/subscriptions/:id/trigger — P15: Manual delivery trigger with status log
+  route.post('/:id/trigger', async (c) => {
+    if (!c.env.DB) return c.redirect('/reports/subscriptions')
+    const id = c.req.param('id')
+    const db = c.env.DB
+    let deliveryStatus = 'success'
+    let deliveryError: string | undefined
+
+    try {
+      // Force next_run_at to past so processSubscriptions picks it up
+      await db.prepare(`
+        UPDATE report_subscriptions SET next_run_at = ?, updated_at = ? WHERE id = ?
+      `).bind(new Date(0).toISOString(), new Date().toISOString(), id).run()
+
+      const result = await processSubscriptions(db, c.env.RATE_LIMITER_KV)
+      if (result.errors && result.errors.length > 0) {
+        deliveryStatus = 'partial'
+        deliveryError = result.errors[0]
+      }
+    } catch (err: any) {
+      deliveryStatus = 'failed'
+      deliveryError = String(err?.message || err)
+    }
+
+    // P15: Log delivery to report_delivery_log
+    try {
+      const logId = 'rdl-' + Date.now().toString(36)
+      await db.prepare(`
+        INSERT INTO report_delivery_log (id, subscription_id, status, delivered_at, error_message, format)
+        VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?, 'csv')
+      `).bind(logId, id, deliveryStatus, deliveryError || null).run()
+    } catch { /* non-blocking */ }
+
+    // P15: Update delivery status on subscription
+    await db.prepare(`
+      UPDATE report_subscriptions
+      SET last_delivery_status = ?, last_delivery_at = CURRENT_TIMESTAMP, last_delivery_error = ?
+      WHERE id = ?
+    `).bind(deliveryStatus, deliveryError || null, id).run().catch(() => {})
+
     return c.redirect('/reports/subscriptions')
   })
 

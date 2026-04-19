@@ -1,8 +1,9 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — ABAC HTTP MIDDLEWARE (P12+P13+P14)
+// SOVEREIGN OS PLATFORM — ABAC HTTP MIDDLEWARE (P12+P13+P14+P15)
 // P13: Log deny events to abac_deny_log for analytics
 // P14: Tenant-aware ABAC enforcement for /t/:slug/* paths
 //      Wire ABAC deny → platform notification (P14)
+// P15: Wire ABAC deny → audit_log_v2 via writeAuditEvent
 // ============================================================
 
 import type { Context, Next } from 'hono'
@@ -10,6 +11,7 @@ import type { Env } from '../index'
 import { checkAccess, type AbacContext } from './abacService'
 import { logAbacDeny } from './abacUiService'
 import { notifyAbacDeny } from './platformNotificationService'
+import { writeAuditEvent } from './auditService'
 
 // ============================================================
 // createAbacMiddleware — factory for route-specific ABAC guard
@@ -80,6 +82,17 @@ export function createAbacMiddleware(
           action,
           subject_role: subjectValue,
           tenant_id: tenantId
+        }).catch(() => {})
+
+        // P15: Write ABAC deny event to audit_log_v2
+        writeAuditEvent(c.env.DB, {
+          event_type: 'abac.access_denied',
+          object_type: resourceType,
+          object_id: `${resourceType}:${action}`,
+          actor: subjectValue,
+          tenant_id: tenantId,
+          payload_summary: `ABAC deny: ${subjectType}=${subjectValue} action=${action} on ${resourceType}`,
+          surface: resourceType
         }).catch(() => {})
 
         return c.json(

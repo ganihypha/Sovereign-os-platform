@@ -1,13 +1,15 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — NOTIFICATIONS SURFACE (P9)
+// SOVEREIGN OS PLATFORM — NOTIFICATIONS SURFACE (P9+P15)
 // Real-time governance notifications via SSE + polling inbox
 //
-// GET /notifications           — Notification inbox view (HTML)
-// GET /notifications/stream    — SSE live stream endpoint
-// GET /notifications/poll      — Polling fallback (JSON)
-// POST /notifications/read/:id — Mark notification as read
-// POST /notifications/read-all — Mark all as read
-// GET /api/v1/notifications    — API: get notifications (auth required)
+// GET /notifications              — Notification inbox view (HTML)
+// GET /notifications/rules        — P15: Platform notification rules management
+// POST /notifications/rules/:id/toggle — P15: Enable/disable a rule
+// GET /notifications/stream       — SSE live stream endpoint
+// GET /notifications/poll         — Polling fallback (JSON)
+// POST /notifications/read/:id    — Mark notification as read
+// POST /notifications/read-all    — Mark all as read
+// GET /api/v1/notifications       — API: get notifications (auth required)
 //
 // AUTH: SSE/inbox visible to all; mutations require auth
 // KV: Latest event stored in RATE_LIMITER_KV for SSE
@@ -316,4 +318,123 @@ notificationsRoute.post('/read-all', async (c) => {
   const db = c.env.DB
   const count = await markAllRead(db, 'default')
   return c.json({ success: true, marked: count })
+})
+
+// ============================================================
+// GET /notifications/rules — P15: Platform notification rules management
+// ============================================================
+notificationsRoute.get('/rules', async (c) => {
+  const db = c.env.DB
+  let rules: any[] = []
+  let totalRules = 0
+  let enabledRules = 0
+
+  if (db) {
+    try {
+      const rows = await db.prepare(
+        `SELECT id, event_type, notification_title, notification_body, severity, enabled, created_at
+         FROM platform_notification_rules ORDER BY created_at ASC`
+      ).all<any>()
+      rules = rows.results || []
+      totalRules = rules.length
+      enabledRules = rules.filter(r => r.enabled === 1).length
+    } catch { /* non-blocking */ }
+  }
+
+  const severityColor: Record<string, string> = {
+    info: '#4f8ef7', warning: '#fbbf24', critical: '#ef4444', error: '#f97316'
+  }
+
+  const ruleRows = rules.map(r => {
+    const sColor = severityColor[r.severity] || '#9aa3b2'
+    const isEnabled = r.enabled === 1
+    return `
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:10px 12px;font-size:10px;font-family:monospace;color:var(--text3)">${r.id}</td>
+        <td style="padding:10px 12px;font-size:11px;font-family:monospace;color:var(--accent)">${r.event_type}</td>
+        <td style="padding:10px 12px;font-size:12px;color:var(--text);font-weight:600">${r.notification_title}</td>
+        <td style="padding:10px 12px;font-size:11px;color:var(--text2);max-width:250px">${r.notification_body}</td>
+        <td style="padding:10px 12px">
+          <span style="padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;background:${sColor}18;color:${sColor};border:1px solid ${sColor}30">${r.severity}</span>
+        </td>
+        <td style="padding:10px 12px">
+          ${isEnabled
+            ? `<span style="padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;background:rgba(34,197,94,0.08);color:#22c55e;border:1px solid rgba(34,197,94,0.2)">Enabled</span>`
+            : `<span style="padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;background:rgba(107,114,128,0.08);color:#6b7280;border:1px solid rgba(107,114,128,0.2)">Disabled</span>`
+          }
+        </td>
+        <td style="padding:10px 12px">
+          <form action="/notifications/rules/${r.id}/toggle" method="POST" style="display:inline">
+            <button type="submit" style="background:${isEnabled ? 'rgba(107,114,128,0.15)' : 'rgba(34,197,94,0.15)'};color:${isEnabled ? '#9aa3b2' : '#22c55e'};border:none;border-radius:4px;padding:4px 10px;font-size:10px;cursor:pointer;font-weight:600">
+              ${isEnabled ? 'Disable' : 'Enable'}
+            </button>
+          </form>
+        </td>
+      </tr>
+    `
+  }).join('')
+
+  const content = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px">
+      <div>
+        <h1 style="font-size:20px;font-weight:700;color:var(--text);margin:0">🔔 Notification Rules</h1>
+        <p style="color:var(--text2);font-size:12px;margin:4px 0 0">P15 — Platform notification rule management · enable/disable per event type</p>
+      </div>
+      <a href="/notifications" style="background:var(--bg2);color:var(--text2);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:11px;text-decoration:none">← Notification Inbox</a>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;margin-bottom:24px">
+      ${[
+        { label: 'Total Rules', val: totalRules, color: '#4f8ef7' },
+        { label: 'Enabled', val: enabledRules, color: '#22c55e' },
+        { label: 'Disabled', val: totalRules - enabledRules, color: '#6b7280' },
+      ].map(s => `
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px">
+          <div style="font-size:10px;color:var(--text3);text-transform:uppercase;margin-bottom:4px">${s.label}</div>
+          <div style="font-size:22px;font-weight:700;color:${s.color}">${s.val}</div>
+        </div>
+      `).join('')}
+    </div>
+
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:auto;margin-bottom:16px">
+      <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px">
+        <span style="font-weight:600;color:var(--text);font-size:13px">Platform Notification Rules</span>
+        <span style="color:var(--text3);font-size:11px">${totalRules} rules configured</span>
+      </div>
+      <table style="width:100%;border-collapse:collapse;min-width:700px">
+        <thead><tr style="background:var(--bg3)">
+          ${['Rule ID','Event Type','Title','Body','Severity','Status','Action'].map(h =>
+            `<th style="padding:10px 12px;text-align:left;font-size:10px;color:var(--text3);font-weight:500">${h}</th>`
+          ).join('')}
+        </tr></thead>
+        <tbody>
+          ${rules.length === 0
+            ? `<tr><td colspan="7" style="padding:32px;text-align:center;color:var(--text3);font-size:12px">No notification rules configured. Add rules via migration or seed.</td></tr>`
+            : ruleRows
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <div style="padding:12px 16px;background:rgba(139,92,246,0.05);border:1px solid rgba(139,92,246,0.15);border-radius:8px;font-size:11px;color:var(--text3)">
+      <span style="color:#8b5cf6;font-weight:600">P15 Notification Rules:</span>
+      These rules control which platform events auto-create notifications.
+      Disabling a rule suppresses notifications for that event type without deleting it.
+      Rules are checked at: ABAC denial, event archive, webhook failure, alert rule trigger.
+    </div>
+  `
+  return c.html(layout('Notification Rules — P15', content, '/notifications'))
+})
+
+// POST /notifications/rules/:id/toggle — P15: Toggle rule enabled/disabled
+notificationsRoute.post('/rules/:id/toggle', async (c) => {
+  const db = c.env.DB
+  const id = c.req.param('id')
+  if (!db) return c.redirect('/notifications/rules')
+  try {
+    await db.prepare(
+      `UPDATE platform_notification_rules SET enabled = CASE WHEN enabled = 1 THEN 0 ELSE 1 END WHERE id = ?`
+    ).bind(id).run()
+  } catch { /* non-blocking */ }
+  return c.redirect('/notifications/rules')
 })
