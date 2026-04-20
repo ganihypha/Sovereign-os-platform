@@ -52,25 +52,33 @@ const SOURCE_ICON: Record<string, string> = {
 // ============================================================
 // P24 HELPER: List connector templates from D1
 // ============================================================
-async function listConnectorTemplates(db: D1Database, opts?: { source_type?: string }): Promise<any[]> {
+async function listConnectorTemplates(db: D1Database | undefined, opts?: { source_type?: string }): Promise<any[]> {
+  if (!db) return []
   try {
     let sql = `SELECT * FROM connector_templates WHERE status = 'published'`
     const params: string[] = []
     if (opts?.source_type) { sql += ` AND source_type = ?`; params.push(opts.source_type) }
     sql += ` ORDER BY install_count DESC`
-    const result = await db.prepare(sql).bind(...params).all()
+    const result = params.length > 0
+      ? await db.prepare(sql).bind(...params).all()
+      : await db.prepare(sql).all()
     return result.results || []
-  } catch { return [] }
+  } catch (e) {
+    console.error('[marketplace] listConnectorTemplates error:', e)
+    return []
+  }
 }
 
-async function getConnectorTemplate(db: D1Database, id: string): Promise<any | null> {
+async function getConnectorTemplate(db: D1Database | undefined, id: string): Promise<any | null> {
+  if (!db) return null
   try {
     const result = await db.prepare(`SELECT * FROM connector_templates WHERE id = ? AND status != 'deprecated'`).bind(id).first()
     return result || null
   } catch { return null }
 }
 
-async function installConnectorTemplate(db: D1Database, templateId: string, tenantId: string, config: Record<string, string>, installedBy: string): Promise<{ ok: boolean; connectorId?: string; error?: string }> {
+async function installConnectorTemplate(db: D1Database | undefined, templateId: string, tenantId: string, config: Record<string, string>, installedBy: string): Promise<{ ok: boolean; connectorId?: string; error?: string }> {
+  if (!db) return { ok: false, error: 'db-unavailable' }
   try {
     const tpl = await getConnectorTemplate(db, templateId)
     if (!tpl) return { ok: false, error: 'template-not-found' }
@@ -100,7 +108,8 @@ async function installConnectorTemplate(db: D1Database, templateId: string, tena
   }
 }
 
-async function rateConnectorTemplate(db: D1Database, templateId: string, tenantId: string, rating: number, comment: string, ratedBy: string): Promise<{ ok: boolean }> {
+async function rateConnectorTemplate(db: D1Database | undefined, templateId: string, tenantId: string, rating: number, comment: string, ratedBy: string): Promise<{ ok: boolean }> {
+  if (!db) return { ok: false }
   try {
     await db.prepare(`
       INSERT INTO connector_ratings (connector_template_id, tenant_id, rating, comment, rated_by, created_at)
@@ -110,7 +119,8 @@ async function rateConnectorTemplate(db: D1Database, templateId: string, tenantI
   } catch { return { ok: false } }
 }
 
-async function getTemplateAvgRating(db: D1Database, templateId: string): Promise<{ avg: number; count: number }> {
+async function getTemplateAvgRating(db: D1Database | undefined, templateId: string): Promise<{ avg: number; count: number }> {
+  if (!db) return { avg: 0, count: 0 }
   try {
     const r = await db.prepare(`SELECT AVG(rating) as avg, COUNT(*) as cnt FROM connector_ratings WHERE connector_template_id = ?`).bind(templateId).first() as any
     return { avg: Math.round((r?.avg || 0) * 10) / 10, count: r?.cnt || 0 }
