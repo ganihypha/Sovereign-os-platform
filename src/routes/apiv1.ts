@@ -45,7 +45,7 @@ export function createApiV1Route() {
       status: 'ok',
       platform: 'Sovereign OS Platform',
       api: 'Public API Gateway v1',
-      version: '1.9.0-P19',
+      version: '2.0.0-P22',
       endpoints: [
         { path: '/api/v1/health', auth: 'none', description: 'API health check' },
         { path: '/api/v1/docs', auth: 'none', description: 'API documentation' },
@@ -66,8 +66,8 @@ export function createApiV1Route() {
     return c.json({
       status: 'ok',
       platform: 'Sovereign OS Platform',
-      version: '1.9.0-P19',
-      phase: 'P19 — Platform Hardening, Email Delivery, Session Tracking, Changelog',
+      version: '2.0.0-P22',
+      phase: 'P22 — Layout Refactor, Version Consistency, D1 Verification, Perf Observability',
       api_version: 'v1',
       email_delivery: !!(c.env.RESEND_API_KEY) ? 'configured' : 'not-configured',
       timestamp: new Date().toISOString(),

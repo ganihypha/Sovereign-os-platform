@@ -1,6 +1,6 @@
 {
   "name": "sovereign-os-platform",
-  "version": "1.9.0-P19",
+  "version": "2.0.0-P22",
   "private": true,
   "scripts": {
     "dev": "vite",

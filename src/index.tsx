@@ -1,6 +1,6 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — MAIN ENTRY (P21 — GPU-Accel Nav, Debounced Events, Non-blocking Fonts, scaleX Loader)
-// Version: 2.0.0-P21
+// SOVEREIGN OS PLATFORM — MAIN ENTRY (P22 — Layout Refactor, Version Consistency, D1 Verification, Perf Observability)
+// Version: 2.0.0-P22
 // Platform: Cloudflare Pages + Workers
 // Hono Framework — Edge-first
 // ============================================================
@@ -272,7 +272,40 @@ app.get('/t/:slug/:surface', (c) => {
   return c.redirect(`/${surface}?tenant=${slug}`)
 })
 
-// Internal API routes — apply requireApiAuth middleware
+// ============================================================
+// P22: LIGHTWEIGHT PERF METRICS ENDPOINT — registered BEFORE /api/* auth middleware
+// POST /api/perf — receives client navigation timing, stores to D1 perf_metrics.
+// No auth required: fire-and-forget beacon from layout-client.ts (sendBeacon).
+// Non-critical: silently discards if D1 unavailable (in-memory mode).
+// ============================================================
+app.post('/api/perf', async (c) => {
+  try {
+    const body = await c.req.json().catch(() => null)
+    if (!body || typeof body.page !== 'string') return c.json({ ok: false }, 400)
+    const db = c.env?.DB
+    // Silently succeed when no D1 binding (in-memory mode / local without --d1 flag)
+    if (db) {
+      try {
+        const id = crypto.randomUUID()
+        const { page, ttfb, dom_ready, load } = body
+        await Promise.allSettled([
+          db.prepare(`INSERT OR IGNORE INTO perf_metrics (id, metric_name, value, page_path) VALUES (?,?,?,?)`)
+            .bind(id + '-ttfb', 'ttfb', Number(ttfb) || 0, page).run(),
+          db.prepare(`INSERT OR IGNORE INTO perf_metrics (id, metric_name, value, page_path) VALUES (?,?,?,?)`)
+            .bind(id + '-dom', 'dom_ready', Number(dom_ready) || 0, page).run(),
+          db.prepare(`INSERT OR IGNORE INTO perf_metrics (id, metric_name, value, page_path) VALUES (?,?,?,?)`)
+            .bind(id + '-load', 'load', Number(load) || 0, page).run(),
+        ])
+      } catch (_dbErr) { /* D1 write failed — non-critical, discard */ }
+    }
+    return c.json({ ok: true })
+  } catch (_e) {
+    // Always return 200 for perf beacon — client doesn't care about errors
+    return c.json({ ok: false })
+  }
+})
+
+// Internal API routes — apply requireApiAuth middleware (registered AFTER /api/perf to exempt it)
 app.use('/api/*', async (c, next) => {
   const authMiddleware = requireApiAuth(c.env)
   return authMiddleware(c, next)
@@ -281,9 +314,6 @@ app.route('/api', createApiRoute())
 
 // ---- Root → Dashboard ----
 app.get('/', (c) => c.redirect('/dashboard'))
-
-// ============================================================
-// HEALTH & STATUS ROUTES (P2.5 — Production Hardening)
 // These are unauthenticated — provide platform status only,
 // never expose secrets or key values.
 // ============================================================
@@ -294,8 +324,8 @@ app.get('/health', (c) => {
   return c.json({
     status: 'ok',
     platform: 'Sovereign OS Platform',
-    version: '2.0.0-P21',
-    phase: 'P21 — GPU-Accelerated UI, Debounced Events, Non-blocking Fonts, scaleX Loader',
+    version: '2.0.0-P22',
+    phase: 'P22 — Layout Refactor, Version Consistency, D1 Verification, Perf Observability',
     persistence: repo.isPersistent ? 'd1' : 'in-memory',
     auth_configured: !!c.env.PLATFORM_API_KEY,
     kv_rate_limiter: !!c.env.RATE_LIMITER_KV ? 'kv-enforced' : 'in-memory-partial',
@@ -319,8 +349,8 @@ app.get('/status', async (c) => {
     return c.json({
       status: 'operational',
       platform: 'Sovereign OS Platform',
-      version: '2.0.0-P21',
-      phase: 'P21 — GPU-Accelerated UI, Debounced Events, Non-blocking Fonts, scaleX Loader',
+      version: '2.0.0-P22',
+      phase: 'P22 — Layout Refactor, Version Consistency, D1 Verification, Perf Observability',
       persistence: repo.isPersistent ? 'd1-persistent' : 'in-memory-ephemeral',
       auth_configured: !!c.env.PLATFORM_API_KEY,
       kv_rate_limiter: !!c.env.RATE_LIMITER_KV ? 'kv-enforced' : 'in-memory-partial',
@@ -429,7 +459,7 @@ app.get('/status', async (c) => {
     return c.json({
       status: 'degraded',
       platform: 'Sovereign OS Platform',
-      version: '1.9.0-P19',
+      version: '2.0.0-P22',
       error: 'Could not read platform state',
       persistence: 'unknown',
       timestamp: new Date().toISOString(),
