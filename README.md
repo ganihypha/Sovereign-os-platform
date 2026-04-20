@@ -14,14 +14,14 @@ requirements, and a stable canon layer that survives sessions.
 
 | Item | Value |
 |------|-------|
-| **Version** | `2.0.0-P22` |
-| **Phase** | P22 — Layout Refactor, Version Consistency, D1 Verification, Perf Observability |
+| **Version** | `2.1.0-P21` |
+| **Phase** | P21 — Multi-Tenant SSO, Tenant Plans, Billing Hooks, Operator Onboarding |
 | **Status** | ✅ LIVE-VERIFIED |
 | **Production** | https://sovereign-os-platform.pages.dev |
 | **GitHub** | https://github.com/ganihypha/Sovereign-os-platform |
-| **Latest Commit** | `d418b18` |
+| **Latest Commit** | `a4187e8` |
 | **D1 Database** | `sovereign-os-production` (f6067325-9ea4-44bc-a5fd-e3d19367e657) |
-| **Migrations Applied** | 0001 → 0022 |
+| **Migrations Applied** | 0001 → 0023 |
 | **Active Surfaces** | 97 total (90 P0-P18 + 7 P19/P20/P21 new/enhanced) |
 | **KV Namespace** | RATE_LIMITER_KV (b36f941ace3445d68d335d8cebc0803a) |
 
