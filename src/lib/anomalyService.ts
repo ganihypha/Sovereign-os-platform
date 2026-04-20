@@ -61,6 +61,7 @@ export async function runAnomalyDetection(
     tenant_id?: string
     threshold?: number
     openai_api_key?: string
+    groq_api_key?: string        // P22: Groq fallback
     write_alerts?: boolean
   } = {}
 ): Promise<AnomalyDetectionResult[]> {
@@ -107,7 +108,10 @@ export async function runAnomalyDetection(
       let ai_summary = `[ai-generated] Metric '${metric}' deviation: ${(deviation * 100).toFixed(1)}% vs baseline ${baseline.toFixed(1)}. Current: ${currentVal}.`
       let confidence = 'statistical-only'
 
-      if (is_anomaly && opts.openai_api_key) {
+      const aiKey = opts.openai_api_key || opts.groq_api_key
+      const useGroq = !opts.openai_api_key && !!opts.groq_api_key
+
+      if (is_anomaly && aiKey) {
         try {
           ai_summary = await getAiAnomalySummary({
             metric,
@@ -116,9 +120,10 @@ export async function runAnomalyDetection(
             deviation,
             severity,
             tenant_id,
-            openai_api_key: opts.openai_api_key,
+            openai_api_key: aiKey,
+            use_groq: useGroq,
           })
-          confidence = 'ai-assisted'
+          confidence = useGroq ? 'ai-assisted-groq' : 'ai-assisted'
         } catch (_e) {
           // AI failed — fallback to statistical summary
           confidence = 'statistical-fallback'
@@ -185,7 +190,8 @@ async function getAiAnomalySummary(opts: {
   deviation: number
   severity: string
   tenant_id: string
-  openai_api_key: string
+  openai_api_key: string  // also accepts groq key
+  use_groq?: boolean
 }): Promise<string> {
   const prompt = `You are a platform observability assistant. Analyze this metric anomaly and provide a brief 1-sentence governance-focused summary.
 Metric: ${opts.metric}
@@ -196,14 +202,19 @@ Deviation: ${(opts.deviation * 100).toFixed(1)}%
 Severity: ${opts.severity}
 Respond with only the summary sentence. Tag it with [ai-generated] at the start.`
 
-  const resp = await fetch('https://api.openai.com/v1/chat/completions', {
+  const endpoint = opts.use_groq
+    ? 'https://api.groq.com/openai/v1/chat/completions'
+    : 'https://api.openai.com/v1/chat/completions'
+  const model = opts.use_groq ? 'llama-3.3-70b-versatile' : 'gpt-4o-mini'
+
+  const resp = await fetch(endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${opts.openai_api_key}`,
     },
     body: JSON.stringify({
-      model: 'gpt-4o-mini',
+      model,
       messages: [{ role: 'user', content: prompt }],
       max_tokens: 120,
       temperature: 0.3,

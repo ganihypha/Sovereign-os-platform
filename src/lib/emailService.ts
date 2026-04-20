@@ -255,3 +255,31 @@ export async function emailCanonCandidateReady(
   `
   return sendGovernanceEmail(env, 'canon_candidate_ready', recipient, subject, bodyHtml)
 }
+
+// ---- P22: Welcome email on operator onboarding step 1 completion ----
+// Fired on step 1 done (fire-and-catch, non-blocking).
+// Uses tenant name / operator name for branding.
+export async function emailWelcome(
+  env: EmailServiceEnv,
+  recipient: string,
+  operatorName: string
+): Promise<void> {
+  const subject = `Welcome to Sovereign OS Platform — ${operatorName}`
+  const bodyHtml = `
+    <p>Welcome to <strong>Sovereign OS Platform</strong>, ${operatorName}!</p>
+    <p>Your operator onboarding has been initiated. The platform is now ready for governance operations.</p>
+    <table style="width:100%;border-collapse:collapse;margin:16px 0">
+      <tr><td style="padding:8px;color:#94a3b8;font-size:13px;width:140px">Platform</td>
+          <td style="padding:8px;font-size:13px;color:#e2e8f0">Sovereign OS Platform</td></tr>
+      <tr style="background:#0d0f14"><td style="padding:8px;color:#94a3b8;font-size:13px">Operator</td>
+          <td style="padding:8px;font-size:13px;color:#e2e8f0">${operatorName}</td></tr>
+      <tr><td style="padding:8px;color:#94a3b8;font-size:13px">Status</td>
+          <td style="padding:8px;font-size:13px;color:#22c55e">Onboarding in progress</td></tr>
+    </table>
+    <p>Continue your onboarding at:</p>
+    <p><a href="https://sovereign-os-platform.pages.dev/onboarding" style="display:inline-block;background:#4f8ef7;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:600;margin-top:8px">Continue Onboarding →</a></p>
+    <p style="font-size:12px;color:#64748b;margin-top:20px">This is an automated notification from Sovereign OS Platform governance system.</p>
+  `
+  return sendGovernanceEmail(env, 'tier3_approval_requested', recipient, subject, bodyHtml)
+}
+

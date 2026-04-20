@@ -56,13 +56,18 @@ export interface DegradedAssistResult {
 export async function runAiAssist(
   repo: Repo,
   request: AssistRequest,
-  openAiApiKey?: string
+  openAiApiKey?: string,
+  groqApiKey?: string   // P22: Groq as fallback when OpenAI key missing
 ): Promise<AssistResult | DegradedAssistResult> {
   const promptHash = await sha256(request.context)
-  const modelHint = openAiApiKey ? 'gpt-4o-mini' : 'none'
 
-  // Graceful degradation: if no API key, return degraded result
-  if (!openAiApiKey) {
+  // P22: Use Groq as fallback if OpenAI key not configured
+  const useGroq = !openAiApiKey && !!groqApiKey
+  const activeKey = openAiApiKey ?? groqApiKey
+  const modelHint = openAiApiKey ? 'gpt-4o-mini' : groqApiKey ? 'llama-3.3-70b-versatile' : 'none'
+
+  // Graceful degradation: if no API key at all, return degraded result
+  if (!activeKey) {
     const logEntry = await repo.createAiAssistLog({
       tenant_id: request.tenant_id,
       session_id: request.session_id ?? null,
@@ -70,7 +75,7 @@ export async function runAiAssist(
       prompt_hash: promptHash,
       model_hint: 'none',
       confidence_tag: 'ai-generated',
-      output_summary: '[DEGRADED: AI key not configured]',
+      output_summary: '[DEGRADED: AI key not configured — set OPENAI_API_KEY or GROQ_API_KEY]',
       confirmed_by: null,
       confirmed_at: null,
       discarded: false,
@@ -83,7 +88,7 @@ export async function runAiAssist(
       confidence_tag: 'ai-generated',
       model_hint: 'none',
       requires_confirmation: true,
-      warning: 'AI assist is not configured. Set OPENAI_API_KEY to enable AI suggestions.',
+      warning: 'AI assist is not configured. Set OPENAI_API_KEY or GROQ_API_KEY to enable AI suggestions.',
       degraded: true,
     }
   }
@@ -96,14 +101,20 @@ export async function runAiAssist(
   let outputSummary = ''
 
   try {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    // P22: Groq fallback — same OpenAI-compatible API format
+    const apiEndpoint = useGroq
+      ? 'https://api.groq.com/openai/v1/chat/completions'
+      : 'https://api.openai.com/v1/chat/completions'
+    const model2 = useGroq ? 'llama-3.3-70b-versatile' : 'gpt-4o-mini'
+
+    const response = await fetch(apiEndpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${openAiApiKey}`,
+        'Authorization': `Bearer ${activeKey}`,
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: model2,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt },
@@ -115,7 +126,7 @@ export async function runAiAssist(
     })
 
     if (!response.ok) {
-      throw new Error(`OpenAI API error: ${response.status}`)
+      throw new Error(`AI API error (${useGroq ? 'Groq' : 'OpenAI'}): ${response.status}`)
     }
 
     const data = await response.json() as Record<string, unknown>

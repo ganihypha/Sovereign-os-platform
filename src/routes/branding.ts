@@ -221,6 +221,27 @@ export function createBrandingRoute() {
             <input type="text" name="custom_footer" value="${b.custom_footer}" placeholder="Powered by Sovereign OS Platform"
               style="width:100%;background:#1a1d27;border:1px solid #2d3440;border-radius:6px;padding:8px 12px;color:#fff;font-size:14px;box-sizing:border-box">
           </div>
+          <div style="margin-bottom:20px;border-top:1px solid #1a1d27;padding-top:20px">
+            <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:#4f8ef7;text-transform:uppercase;margin-bottom:12px">P22 Extended Branding (White-label)</div>
+            <label style="display:block;font-size:13px;color:#cbd5e1;margin-bottom:6px">Company Name</label>
+            <input type="text" name="company_name" value="" placeholder="Sovereign OS Platform"
+              style="width:100%;background:#1a1d27;border:1px solid #2d3440;border-radius:6px;padding:8px 12px;color:#fff;font-size:14px;box-sizing:border-box;margin-bottom:12px">
+            <label style="display:block;font-size:13px;color:#cbd5e1;margin-bottom:6px">Support Email</label>
+            <input type="email" name="support_email" value="" placeholder="support@company.com"
+              style="width:100%;background:#1a1d27;border:1px solid #2d3440;border-radius:6px;padding:8px 12px;color:#fff;font-size:14px;box-sizing:border-box;margin-bottom:12px">
+            <label style="display:block;font-size:13px;color:#cbd5e1;margin-bottom:6px">Favicon URL</label>
+            <input type="url" name="favicon_url" value="" placeholder="https://company.com/favicon.ico"
+              style="width:100%;background:#1a1d27;border:1px solid #2d3440;border-radius:6px;padding:8px 12px;color:#fff;font-size:14px;box-sizing:border-box;margin-bottom:12px">
+            <label style="display:block;font-size:13px;color:#cbd5e1;margin-bottom:6px">Custom CSS Overrides <span style="color:#6b7280;font-size:11px">(max 4000 chars, no &lt;script&gt;)</span></label>
+            <textarea name="custom_css" rows="4" placeholder=":root { --custom-accent: #ff6b6b; }"
+              style="width:100%;background:#1a1d27;border:1px solid #2d3440;border-radius:6px;padding:8px 12px;color:#fff;font-size:12px;font-family:monospace;box-sizing:border-box;resize:vertical;margin-bottom:12px"></textarea>
+            <label style="display:block;font-size:13px;color:#cbd5e1;margin-bottom:6px">Portal Theme</label>
+            <select name="portal_theme"
+              style="width:100%;background:#1a1d27;border:1px solid #2d3440;border-radius:6px;padding:8px 12px;color:#fff;font-size:14px;box-sizing:border-box">
+              <option value="dark">Dark (default)</option>
+              <option value="light">Light</option>
+            </select>
+          </div>
           <button type="submit" style="background:#4f8ef7;color:#fff;border:none;border-radius:6px;padding:10px 24px;font-size:14px;font-weight:600;cursor:pointer">Save Branding</button>
         </form>
         <div>
@@ -276,6 +297,15 @@ export function createBrandingRoute() {
     const cssVarsRaw = (form.get('css_vars') as string ?? '{}').trim()
     const customFooter = (form.get('custom_footer') as string ?? '').trim()
 
+    // P22: Extended branding fields
+    const companyName = (form.get('company_name') as string ?? '').trim()
+    const supportEmail = (form.get('support_email') as string ?? '').trim()
+    const faviconUrl = (form.get('favicon_url') as string ?? '').trim()
+    const customCssRaw = (form.get('custom_css') as string ?? '').trim()
+    const portalTheme = (form.get('portal_theme') as string ?? 'dark').trim()
+    // Sanitize custom_css — max 4000 chars, no <script>
+    const customCss = customCssRaw.replace(/<script[\s\S]*?<\/script>/gi, '').slice(0, 4000)
+
     // Validate css_vars is valid JSON
     let cssVars = '{}'
     try { JSON.parse(cssVarsRaw); cssVars = cssVarsRaw } catch (_) {}
@@ -293,6 +323,35 @@ export function createBrandingRoute() {
       css_vars: cssVars,
       custom_footer: customFooter,
     })
+
+    // P22: Upsert extended branding (fire-and-catch — non-blocking if table not migrated yet)
+    if (c.env.DB) {
+      const extId = `bext-${tid}`
+      c.env.DB.prepare(
+        `INSERT INTO tenant_branding_ext
+         (id, tenant_id, company_name, logo_url, primary_color, secondary_color,
+          favicon_url, support_email, custom_css, portal_theme, updated_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+         ON CONFLICT(tenant_id) DO UPDATE SET
+           company_name = excluded.company_name,
+           logo_url = excluded.logo_url,
+           favicon_url = excluded.favicon_url,
+           support_email = excluded.support_email,
+           custom_css = excluded.custom_css,
+           portal_theme = excluded.portal_theme,
+           updated_at = datetime('now')`
+      ).bind(
+        extId, tid,
+        companyName || brandName || tenant.name,
+        logoUrl,
+        primaryColor,
+        secondaryColor,
+        faviconUrl,
+        supportEmail,
+        customCss,
+        portalTheme
+      ).run().catch(() => { /* non-blocking — table may not exist in old local DB */ })
+    }
 
     return c.redirect(`/branding/${tid}?saved=1`)
   })

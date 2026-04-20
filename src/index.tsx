@@ -99,6 +99,10 @@ export type Env = {
   // P11: no new required secrets. Remediation, events, docs use existing D1 + KV.
   // P12: no new required secrets. ABAC middleware, report subscriptions, webhook queue, API key permissions use existing D1 + KV.
   // P15: no new required secrets. Search, notification rules, audit export jobs, delivery log use existing D1 + KV.
+  GROQ_API_KEY?: string           // P22: optional — Groq AI fallback (graceful degradation if missing)
+  STRIPE_SECRET_KEY?: string      // P21: optional — Stripe billing (never logged/returned)
+  STRIPE_WEBHOOK_SECRET?: string  // P21: optional — Stripe HMAC webhook verification
+  // P22: GROQ_API_KEY added as AI fallback. STRIPE secrets for billing hooks.
 }
 
 const app = new Hono<{ Bindings: Env }>()
@@ -329,13 +333,13 @@ app.get('/health', (c) => {
   return c.json({
     status: 'ok',
     platform: 'Sovereign OS Platform',
-    version: '2.1.0-P21',
-    phase: 'P21 — Multi-Tenant SSO, Tenant Plans, Billing Hooks, Operator Onboarding',
+    version: '2.2.0-P22',
+    phase: 'P22 — AI Integration, Branding/White-label, Plan Enforcement, Operator Onboarding',
     auth_configured: !!c.env.PLATFORM_API_KEY,
     kv_rate_limiter: !!c.env.RATE_LIMITER_KV ? 'kv-enforced' : 'in-memory-partial',
     email_delivery: !!(c.env.RESEND_API_KEY || c.env.SENDGRID_API_KEY) ? 'configured' : 'not-configured',
     sso: !!(c.env.AUTH0_CLIENT_SECRET || c.env.CLERK_SECRET_KEY) ? 'configured' : 'not-configured',
-    ai_assist: !!c.env.OPENAI_API_KEY ? 'configured' : 'not-configured',
+    ai_assist: !!(c.env.OPENAI_API_KEY || c.env.GROQ_API_KEY) ? 'configured' : 'not-configured',
     timestamp: new Date().toISOString(),
   })
 })
@@ -353,13 +357,13 @@ app.get('/status', async (c) => {
     return c.json({
       status: 'operational',
       platform: 'Sovereign OS Platform',
-      version: '2.1.0-P21',
-      phase: 'P21 — Multi-Tenant SSO, Tenant Plans, Billing Hooks, Operator Onboarding',
+      version: '2.2.0-P22',
+      phase: 'P22 — AI Integration, Branding/White-label, Plan Enforcement, Operator Onboarding',
       auth_configured: !!c.env.PLATFORM_API_KEY,
       kv_rate_limiter: !!c.env.RATE_LIMITER_KV ? 'kv-enforced' : 'in-memory-partial',
       email_delivery: !!(c.env.RESEND_API_KEY || c.env.SENDGRID_API_KEY) ? 'configured' : 'not-configured',
       sso: !!(c.env.AUTH0_CLIENT_SECRET || c.env.CLERK_SECRET_KEY) ? 'configured' : 'not-configured',
-      ai_assist: !!c.env.OPENAI_API_KEY ? 'configured' : 'not-configured',
+      ai_assist: !!(c.env.OPENAI_API_KEY || c.env.GROQ_API_KEY) ? 'configured' : 'not-configured',
       surfaces: {
         dashboard: 'active',
         intent: 'active',
@@ -460,6 +464,14 @@ app.get('/status', async (c) => {
         operator_onboarding: 'active',      // P21 — operator_onboarding D1 table
         tenant_rate_limits: 'active',       // P21 — per-tenant rate limit config
         route_helpers: 'active',            // P21 — routeHelpers.ts (safeDb, noCacheHeaders)
+        // P22 new surfaces
+        groq_ai_fallback: 'active',         // P22 — GROQ_API_KEY as Groq AI fallback provider
+        plan_guard: 'active',               // P22 — planGuard.ts (SSO + AI feature gates)
+        onboarding_wizard_5step: 'active',  // P22 — Onboarding wizard 5-step + D1 tracking
+        branding_ext: 'active',             // P22 — tenant_branding_ext (company_name, support_email, custom_css)
+        ai_session_brief_table: 'active',   // P22 — ai_session_brief D1 table
+        plan_access_log: 'active',          // P22 — plan_access_log D1 table
+        email_welcome: 'active',            // P22 — emailWelcome on onboarding step 1
       },
       counts: {
         sessions: sessions.length,
@@ -474,7 +486,7 @@ app.get('/status', async (c) => {
     return c.json({
       status: 'degraded',
       platform: 'Sovereign OS Platform',
-      version: '2.1.0-P21',
+      version: '2.2.0-P22',
       persistence: 'unknown',
       timestamp: new Date().toISOString(),
     }, 503)

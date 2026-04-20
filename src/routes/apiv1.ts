@@ -47,7 +47,7 @@ export function createApiV1Route() {
       status: 'ok',
       platform: 'Sovereign OS Platform',
       api: 'Public API Gateway v1',
-      version: '2.1.0-P21',
+      version: '2.2.0-P22',
       endpoints: [
         { path: '/api/v1/health', auth: 'none', description: 'API health check' },
         { path: '/api/v1/docs', auth: 'none', description: 'API documentation' },
@@ -68,7 +68,7 @@ export function createApiV1Route() {
     return c.json({
       status: 'ok',
       platform: 'Sovereign OS Platform',
-      version: '2.1.0-P21',
+      version: '2.2.0-P22',
       phase: 'P21 — Multi-Tenant SSO, Tenant Plans, Billing Hooks, Operator Onboarding',
       api_version: 'v1',
       email_delivery: !!(c.env.RESEND_API_KEY) ? 'configured' : 'not-configured',
@@ -303,6 +303,7 @@ export function createApiV1Route() {
       tenant_id: body.tenant_id ?? 'default',
       threshold: body.threshold,
       openai_api_key: c.env.OPENAI_API_KEY,
+      groq_api_key: c.env.GROQ_API_KEY,   // P22: Groq fallback
       write_alerts: body.write_alerts ?? true,
     })
 

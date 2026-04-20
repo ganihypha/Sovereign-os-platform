@@ -12,6 +12,7 @@ import { layout } from '../layout'
 import { isAuthenticated } from '../lib/auth'
 import { runAiAssist } from '../lib/aiAssist'
 import type { AiAssistType } from '../types'
+import { planGuard } from '../lib/planGuard'
 
 export function createAiAssistRoute() {
   const app = new Hono<{ Bindings: Env }>()
@@ -25,7 +26,14 @@ export function createAiAssistRoute() {
       repo.getUnreadAlertCount(),
     ])
 
+    // P22: AI available if OpenAI OR Groq key is configured
     const hasAiKey = !!(c.env as Record<string, unknown>)['OPENAI_API_KEY']
+      || !!(c.env as Record<string, unknown>)['GROQ_API_KEY']
+    const aiProvider = (c.env as Record<string, unknown>)['OPENAI_API_KEY']
+      ? 'OpenAI (gpt-4o-mini)'
+      : (c.env as Record<string, unknown>)['GROQ_API_KEY']
+        ? 'Groq (llama-3.3-70b-versatile)'
+        : 'none'
 
     const logRows = logs.slice(0, 20).map(log => `
       <tr>
@@ -61,13 +69,13 @@ export function createAiAssistRoute() {
       ${!hasAiKey ? `
       <div class="card mb-4" style="border-left:3px solid var(--warning);background:rgba(245,158,11,0.05)">
         <div class="card-body">
-          <strong>⚠ AI Degraded Mode</strong> — <code>OPENAI_API_KEY</code> not configured.
-          AI suggestions will not be generated. Set the secret to enable AI assist.
+          <strong>⚠ AI Degraded Mode</strong> — <code>OPENAI_API_KEY</code> and <code>GROQ_API_KEY</code> not configured.
+          AI suggestions will not be generated. Set either secret via <code>wrangler pages secret put</code> to enable AI assist.
         </div>
       </div>` : `
       <div class="card mb-4" style="border-left:3px solid var(--success);background:rgba(16,185,129,0.05)">
         <div class="card-body">
-          <strong>AI Available</strong> — Model: gpt-4o-mini. All outputs are tagged <code>ai-generated</code> and require human review.
+          <strong>✓ AI Available</strong> — Provider: <strong>${aiProvider}</strong>. All outputs are tagged <code>ai-generated</code> and require human review.
         </div>
       </div>`}
 
@@ -132,6 +140,8 @@ export function createAiAssistRoute() {
   })
 
   // POST /ai-assist/generate — Invoke AI assist
+  // POST /ai-assist/generate — P22: plan gate (ai_assist = enterprise only)
+  app.use('/generate', planGuard('ai_assist'))
   app.post('/generate', async (c) => {
     const repo = createRepo(c.env.DB)
     const authenticated = await isAuthenticated(c, c.env)
@@ -145,6 +155,8 @@ export function createAiAssistRoute() {
     if (!context) return c.json({ error: 'context is required' }, 400)
 
     const openAiKey = (c.env as Record<string, unknown>)['OPENAI_API_KEY'] as string | undefined
+    // P22: Groq fallback
+    const groqKey = (c.env as Record<string, unknown>)['GROQ_API_KEY'] as string | undefined
 
     const result = await runAiAssist(repo, {
       assist_type,
@@ -152,7 +164,7 @@ export function createAiAssistRoute() {
       session_id,
       tenant_id: 'tenant-default',
       created_by: 'architect',
-    }, openAiKey)
+    }, openAiKey, groqKey)
 
     // Show result on a confirmation page
     const unreadAlerts = await repo.getUnreadAlertCount()

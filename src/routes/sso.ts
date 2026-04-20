@@ -22,6 +22,7 @@ import type { Env } from '../index'
 import { createRepo } from '../lib/repo'
 import { isAuthenticated, authStatusBadge } from '../lib/auth'
 import { layout } from '../layout'
+import { planGuard } from '../lib/planGuard'
 
 export function createSsoRoute() {
   const app = new Hono<{ Bindings: Env }>()
@@ -182,7 +183,8 @@ export function createSsoRoute() {
     return c.redirect('/auth/sso?saved=1')
   })
 
-  // GET /auth/sso/init/:tid — Initiate OAuth2 PKCE flow
+  // GET /auth/sso/init/:tid — Initiate OAuth2 PKCE flow (P22: plan gate — enterprise only)
+  app.use('/init/:tid', planGuard('sso'))
   app.get('/init/:tid', async (c) => {
     const tid = c.req.param('tid')
     const repo = createRepo(c.env.DB)
