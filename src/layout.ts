@@ -115,6 +115,8 @@ const NAV_SECTIONS = [
       { path: '/admin/settings',          label: 'Settings',       icon: '⚙️' },
       { path: '/admin/sessions',          label: 'Sessions',       icon: '👤' },
       { path: '/admin/api-keys',          label: 'Key Rotation',   icon: '🔑' },
+      { path: '/plans',                   label: 'Tenant Plans',   icon: '📋' },
+      { path: '/billing',                 label: 'Billing',        icon: '💳' },
       { path: '/changelog',               label: 'Changelog',      icon: '📝' },
       { path: '/federation',              label: 'Federation',     icon: '🔗' },
       { path: '/marketplace',             label: 'Marketplace',    icon: '🛒' },

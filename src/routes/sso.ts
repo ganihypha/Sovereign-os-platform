@@ -239,30 +239,18 @@ export function createSsoRoute() {
       `, '/auth/sso'), 400)
     }
 
-    // In production: store state+code_verifier in KV with short TTL
-    // For now: pass as query params to callback (demo) — production would use KV
-    return c.html(layout('SSO Integration', `
-      <div class="max-w-2xl mx-auto py-8">
-        <h1 class="text-xl font-bold text-white mb-4">Initiating SSO: ${cfg.provider}</h1>
-        <div class="bg-gray-900 rounded-lg border border-gray-700 p-6 mb-4">
-          <p class="text-gray-300 mb-4">PKCE flow ready. Click the button below to authenticate with <strong>${cfg.provider}</strong>.</p>
-          <div class="bg-gray-800 rounded p-3 font-mono text-xs text-gray-400 mb-4 break-all">
-            <strong class="text-gray-200">Authorization URL (preview):</strong><br>
-            ${authUrl.substring(0, 120)}...
-          </div>
-          <a href="${authUrl}" class="inline-block bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded font-medium">
-            → Authenticate with ${cfg.provider.toUpperCase()}
-          </a>
-        </div>
-        <div class="bg-yellow-900/20 border border-yellow-700/40 rounded p-3 text-xs text-yellow-300">
-          <strong>P7 Note:</strong> state and code_verifier should be stored in KV with TTL for full production PKCE.
-          This flow is wired and ready for production secret configuration.
-        </div>
-      </div>
-    `, '/auth/sso'))
+    // P21: Store state+code_verifier in KV with 5-minute TTL for real PKCE verification
+    const kvKey = `sso_pkce_${state}`
+    const kvPayload = JSON.stringify({ codeVerifier, tenantId: tid, provider: cfg.provider, issuedAt: Date.now() })
+    if (c.env.RATE_LIMITER_KV) {
+      // Reuse RATE_LIMITER_KV for PKCE state storage (300s TTL = 5 min window)
+      await c.env.RATE_LIMITER_KV.put(kvKey, kvPayload, { expirationTtl: 300 })
+    }
+
+    return c.redirect(authUrl)
   })
 
-  // GET /auth/sso/callback — OAuth2 callback
+  // GET /auth/sso/callback — OAuth2 callback (P21: real token exchange with KV PKCE verification)
   app.get('/callback', async (c) => {
     const code = c.req.query('code')
     const state = c.req.query('state')
@@ -290,19 +278,133 @@ export function createSsoRoute() {
       `, '/auth/sso'), 200)
     }
 
-    // In production: exchange code for token using code_verifier from KV
-    // For P7: acknowledge receipt, display next step instructions
+    // P21: Real token exchange with KV PKCE state verification
+    let pkceData: { codeVerifier: string; tenantId: string; provider: string; issuedAt: number } | null = null
+
+    if (state && c.env.RATE_LIMITER_KV) {
+      try {
+        const kvKey = `sso_pkce_${state}`
+        const raw = await c.env.RATE_LIMITER_KV.get(kvKey)
+        if (raw) {
+          pkceData = JSON.parse(raw)
+          // Delete after use (one-time PKCE state)
+          await c.env.RATE_LIMITER_KV.delete(kvKey)
+        }
+      } catch { /* KV unavailable — continue without PKCE verification */ }
+    }
+
+    // If we have PKCE data + provider secret — attempt real token exchange
+    let tokenExchangeResult: { success: boolean; userEmail?: string; error?: string } = { success: false }
+    if (pkceData && code) {
+      const repo = createRepo(c.env.DB)
+      const cfg = await repo.getSsoConfig(pkceData.tenantId).catch(() => null)
+
+      if (cfg && cfg.enabled && cfg.provider !== 'none') {
+        const clientSecret = cfg.provider === 'auth0'
+          ? c.env.AUTH0_CLIENT_SECRET
+          : c.env.CLERK_SECRET_KEY
+
+        if (clientSecret) {
+          try {
+            // Build token endpoint URL
+            const tokenEndpoint = cfg.provider === 'auth0'
+              ? `https://${cfg.domain}/oauth/token`
+              : `https://${cfg.domain}/oauth/token`
+
+            const redirectUri = cfg.redirect_uri || `${new URL(c.req.url).origin}/auth/sso/callback`
+
+            const tokenResp = await fetch(tokenEndpoint, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+              body: new URLSearchParams({
+                grant_type: 'authorization_code',
+                client_id: cfg.client_id || '',
+                client_secret: clientSecret,
+                code,
+                redirect_uri: redirectUri,
+                code_verifier: pkceData.codeVerifier,
+              }).toString(),
+            })
+
+            if (tokenResp.ok) {
+              const tokenData = await tokenResp.json() as Record<string, unknown>
+              // Extract user email from id_token JWT claims (base64 decode middle part)
+              let userEmail = 'sso-user@' + (cfg.domain || 'provider')
+              if (tokenData.id_token && typeof tokenData.id_token === 'string') {
+                try {
+                  const payload = JSON.parse(atob(tokenData.id_token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+                  userEmail = payload.email || payload.sub || userEmail
+                } catch { /* ignore JWT parse errors */ }
+              }
+
+              // Store SSO session in D1 (fire-and-catch)
+              if (c.env.DB) {
+                const sessionId = `sso_${crypto.randomUUID()}`
+                // Hash access token — NEVER store plaintext
+                const encoder2 = new TextEncoder()
+                const hashBuf = await crypto.subtle.digest('SHA-256', encoder2.encode(String(tokenData.access_token || sessionId)))
+                const tokenHash = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('')
+
+                c.env.DB.prepare(
+                  `INSERT OR IGNORE INTO sso_sessions (id, provider, state, code_verifier_hash, user_email, access_token_hash, expires_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)`
+                ).bind(
+                  sessionId,
+                  cfg.provider,
+                  state?.substring(0, 64) ?? '',
+                  tokenHash.substring(0, 64),
+                  userEmail.substring(0, 200),
+                  tokenHash,
+                  new Date(Date.now() + 3600 * 1000).toISOString()
+                ).run().catch(() => {})
+              }
+
+              tokenExchangeResult = { success: true, userEmail }
+            } else {
+              const errBody = await tokenResp.text().catch(() => '')
+              tokenExchangeResult = { success: false, error: `Token exchange failed (${tokenResp.status})` }
+            }
+          } catch (fetchErr) {
+            tokenExchangeResult = { success: false, error: 'Token exchange network error' }
+          }
+        } else {
+          tokenExchangeResult = { success: false, error: `${cfg.provider.toUpperCase()} client secret not configured. Set via wrangler secret.` }
+        }
+      }
+    }
+
+    if (tokenExchangeResult.success) {
+      return c.html(layout('SSO Integration', `
+        <div class="max-w-lg mx-auto py-8">
+          <h1 class="text-xl font-bold text-green-400 mb-4">✓ SSO Login Successful</h1>
+          <div class="bg-gray-900 rounded-lg border border-gray-700 p-6 mb-4">
+            <p class="text-gray-300 mb-2">Authenticated as: <strong class="text-white">${tokenExchangeResult.userEmail}</strong></p>
+            <p class="text-gray-400 text-sm mb-4">OAuth2 PKCE token exchange completed. Session recorded.</p>
+            <div class="bg-green-900/20 border border-green-700/40 rounded p-3 text-sm text-green-300 mb-4">
+              <strong>Session Active.</strong> Role assignment is handled by the platform admin.
+              Visit <a href="/admin/sessions" class="underline">/admin/sessions</a> to manage sessions.
+            </div>
+          </div>
+          <a href="/dashboard" class="inline-block bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded font-medium">→ Go to Dashboard</a>
+        </div>
+      `, '/auth/sso'))
+    }
+
+    // Fallback: show callback received + instructions
     return c.html(layout('SSO Integration', `
       <div class="max-w-lg mx-auto py-8">
-        <h1 class="text-xl font-bold text-green-400 mb-4">✓ SSO Callback Received</h1>
+        <h1 class="text-xl font-bold text-yellow-400 mb-4">SSO Callback Received</h1>
         <div class="bg-gray-900 rounded-lg border border-gray-700 p-6 mb-4">
-          <p class="text-gray-300 mb-3">Authorization code received successfully.</p>
+          <p class="text-gray-300 mb-3">Authorization code received.</p>
           <p class="text-gray-400 text-sm mb-2">State: <code class="font-mono">${state?.substring(0,12) ?? 'none'}...</code></p>
           <p class="text-gray-400 text-sm mb-4">Code: <code class="font-mono">${code.substring(0,12)}...</code></p>
+          ${tokenExchangeResult.error ? `
+          <div class="bg-yellow-900/20 border border-yellow-700/40 rounded p-3 text-sm text-yellow-300 mb-3">
+            <strong>Token Exchange Status:</strong> ${tokenExchangeResult.error}
+          </div>` : ''}
           <div class="bg-blue-900/20 border border-blue-700/40 rounded p-3 text-sm text-blue-300">
-            <strong>Next:</strong> In production, exchange code for token using the stored code_verifier (from KV).
-            Configure <code>AUTH0_CLIENT_SECRET</code> or <code>CLERK_SECRET_KEY</code> via Cloudflare secrets
-            and wire the token exchange in this callback.
+            <strong>To activate full SSO:</strong> Configure <code>AUTH0_CLIENT_SECRET</code> or 
+            <code>CLERK_SECRET_KEY</code> via <code>npx wrangler pages secret put</code>.
           </div>
         </div>
         <a href="/dashboard" class="text-blue-400 hover:underline">→ Continue to Dashboard</a>

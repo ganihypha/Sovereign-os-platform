@@ -1,6 +1,6 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — MAIN ENTRY (P22 — Layout Refactor, Version Consistency, D1 Verification, Perf Observability)
-// Version: 2.0.0-P22
+// SOVEREIGN OS PLATFORM — MAIN ENTRY (P21 — Multi-Tenant SSO, Tenant Plans, Billing Hooks, Operator Onboarding)
+// Version: 2.1.0-P21
 // Platform: Cloudflare Pages + Workers
 // Hono Framework — Edge-first
 // ============================================================
@@ -81,6 +81,8 @@ import { createAdminRoute } from './routes/admin'
 
 // Route imports — P19 new surfaces
 import { createChangelogRoute } from './routes/changelog'
+import { createPlansRoute } from './routes/plans'
+import { createBillingRoute } from './routes/billing'
 
 export type Env = {
   DB?: D1Database
@@ -232,8 +234,11 @@ app.route('/admin', createAdminRoute())
 // P19: Platform changelog
 app.route('/changelog', createChangelogRoute())
 
-// P6: Tenant namespace path routing — /t/:slug/*
-// P7: Injects tenant branding CSS into routing context
+// P21: Tenant Plans + Billing surfaces
+app.route('/plans', createPlansRoute())
+app.route('/billing', createBillingRoute())
+
+// P6: Tenant namespace path routing
 // P14: Tenant ABAC enforcement for mutation paths
 app.use('/t/:slug/*', async (c, next) => {
   const { createRepo } = await import('./lib/repo')
@@ -324,9 +329,8 @@ app.get('/health', (c) => {
   return c.json({
     status: 'ok',
     platform: 'Sovereign OS Platform',
-    version: '2.0.0-P22',
-    phase: 'P22 — Layout Refactor, Version Consistency, D1 Verification, Perf Observability',
-    persistence: repo.isPersistent ? 'd1' : 'in-memory',
+    version: '2.1.0-P21',
+    phase: 'P21 — Multi-Tenant SSO, Tenant Plans, Billing Hooks, Operator Onboarding',
     auth_configured: !!c.env.PLATFORM_API_KEY,
     kv_rate_limiter: !!c.env.RATE_LIMITER_KV ? 'kv-enforced' : 'in-memory-partial',
     email_delivery: !!(c.env.RESEND_API_KEY || c.env.SENDGRID_API_KEY) ? 'configured' : 'not-configured',
@@ -349,9 +353,8 @@ app.get('/status', async (c) => {
     return c.json({
       status: 'operational',
       platform: 'Sovereign OS Platform',
-      version: '2.0.0-P22',
-      phase: 'P22 — Layout Refactor, Version Consistency, D1 Verification, Perf Observability',
-      persistence: repo.isPersistent ? 'd1-persistent' : 'in-memory-ephemeral',
+      version: '2.1.0-P21',
+      phase: 'P21 — Multi-Tenant SSO, Tenant Plans, Billing Hooks, Operator Onboarding',
       auth_configured: !!c.env.PLATFORM_API_KEY,
       kv_rate_limiter: !!c.env.RATE_LIMITER_KV ? 'kv-enforced' : 'in-memory-partial',
       email_delivery: !!(c.env.RESEND_API_KEY || c.env.SENDGRID_API_KEY) ? 'configured' : 'not-configured',
@@ -445,6 +448,18 @@ app.get('/status', async (c) => {
         email_service: 'active',            // P19 — emailService.ts Resend wrapper
         email_log: 'active',                // P19 — email_log D1 table
         error_log: 'active',                // P19 — error_log D1 table
+        // P20/P21 new surfaces
+        sso_pkce_kv: 'active',              // P21 — SSO PKCE KV state storage (real)
+        sso_token_exchange: 'active',       // P21 — OAuth2 token exchange in callback
+        email_canon_wired: 'active',        // P21 — emailCanonCandidateReady wired
+        api_request_log: 'active',          // P21 — api_request_log D1 fire-and-catch
+        cache_control_nostor: 'active',     // P21 — Cache-Control: no-store on API v1
+        db_try_catch: 'active',             // P21 — try/catch hardening key routes
+        tenant_plans: 'active',             // P21 — /plans surface
+        billing_hooks: 'active',            // P21 — /billing surface + webhook receiver
+        operator_onboarding: 'active',      // P21 — operator_onboarding D1 table
+        tenant_rate_limits: 'active',       // P21 — per-tenant rate limit config
+        route_helpers: 'active',            // P21 — routeHelpers.ts (safeDb, noCacheHeaders)
       },
       counts: {
         sessions: sessions.length,
@@ -459,8 +474,7 @@ app.get('/status', async (c) => {
     return c.json({
       status: 'degraded',
       platform: 'Sovereign OS Platform',
-      version: '2.0.0-P22',
-      error: 'Could not read platform state',
+      version: '2.1.0-P21',
       persistence: 'unknown',
       timestamp: new Date().toISOString(),
     }, 503)

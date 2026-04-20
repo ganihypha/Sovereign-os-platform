@@ -1,6 +1,7 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — CANON PROMOTION ROUTE (P4+P13)
+// SOVEREIGN OS PLATFORM — CANON PROMOTION ROUTE (P4+P13+P21)
 // P13: ABAC-aware UI — viewer role sees disabled promote/reject buttons
+// P21: emailCanonCandidateReady wired on promote action (fire-and-catch)
 // ============================================================
 
 import { Hono } from 'hono'
@@ -10,6 +11,7 @@ import { isAuthenticated } from '../lib/auth'
 import type { Env } from '../index'
 import type { CanonCandidate } from '../types'
 import { abacGuardCanonPromote } from '../lib/abacMiddleware'
+import { emailCanonCandidateReady } from '../lib/emailService'
 import { getAbacUiConfig, generateAbacUiScript } from '../lib/abacUiService'
 
 const STATUS_BADGE: Record<string, string> = {
@@ -201,8 +203,9 @@ export function createCanonRoute() {
     return c.html(layout('Canon Promotion', content, '/canon'))
   })
 
-  // POST promote — ABAC guarded (P12)
+  // POST promote — ABAC guarded (P12+P21)
   route.post('/:id/promote', abacGuardCanonPromote, async (c) => {
+    try {
     const isAuth = await isAuthenticated(c, c.env)
     if (!isAuth) return c.json({ error: 'AUTH_REQUIRED', message: 'Founder or Architect key required.' }, 401)
 
@@ -238,13 +241,25 @@ export function createCanonRoute() {
       acted_at: new Date().toISOString(),
     })
 
+    // P21: Fire-and-catch email notification on canon promotion
+    emailCanonCandidateReady(
+      c.env,
+      'platform-admin@sovereign-os.internal',
+      id,
+      (candidate as unknown as Record<string, string>).title ?? id
+    ).catch(() => { /* non-blocking — email failure never blocks promotion */ })
+
     const accept = c.req.header('accept') ?? ''
     if (accept.includes('text/html')) return c.redirect('/canon')
     return c.json({ success: true, id, action: 'promoted' })
+    } catch (_err) {
+      return c.json({ error: 'DB_ERROR', message: 'Could not promote canon candidate. Please try again.' }, 500)
+    }
   })
 
-  // POST reject — ABAC guarded (P12)
+  // POST reject — ABAC guarded (P12+P21)
   route.post('/:id/reject', abacGuardCanonPromote, async (c) => {
+    try {
     const isAuth = await isAuthenticated(c, c.env)
     if (!isAuth) return c.json({ error: 'AUTH_REQUIRED', message: 'Founder or Architect key required.' }, 401)
 
@@ -274,9 +289,12 @@ export function createCanonRoute() {
       acted_at: new Date().toISOString(),
     })
 
-    const accept = c.req.header('accept') ?? ''
-    if (accept.includes('text/html')) return c.redirect('/canon')
+    const accept2 = c.req.header('accept') ?? ''
+    if (accept2.includes('text/html')) return c.redirect('/canon')
     return c.json({ success: true, id, action: 'rejected' })
+    } catch (_err) {
+      return c.json({ error: 'DB_ERROR', message: 'Could not reject canon candidate. Please try again.' }, 500)
+    }
   })
 
   return route

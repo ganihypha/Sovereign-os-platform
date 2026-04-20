@@ -123,12 +123,14 @@ export function checkRateLimitSync(
 }
 
 // ---- rateLimitHeaders ----
-// Adds X-RateLimit-* headers to the response context.
+// Adds X-RateLimit-* headers + Cache-Control: no-store (P21: sensitive API hardening)
 export function rateLimitHeaders(result: RateLimitResult): Record<string, string> {
   return {
     'X-RateLimit-Limit': String(result.limit),
     'X-RateLimit-Remaining': String(result.remaining),
     'X-RateLimit-Reset': String(result.resetAt),
     'X-RateLimit-Policy': result.isMemoryFallback ? 'in-memory-partial' : 'kv-enforced',
+    'Cache-Control': 'no-store',
+    'Pragma': 'no-cache',
   }
 }

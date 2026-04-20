@@ -78,8 +78,9 @@ export function createApiRoute() {
 
   // ---- Approvals ----
   route.post('/approvals', async (c) => {
-    const repo = createRepo(c.env.DB)
-    const body = await c.req.parseBody()
+    try {
+      const repo = createRepo(c.env.DB)
+      const body = await c.req.parseBody()
     await repo.createApprovalRequest({
       request_id: String(body.request_id || ''),
       action_type: String(body.action_type || ''),
@@ -116,6 +117,9 @@ export function createApiRoute() {
       ).catch(() => {})
     }
     return c.redirect('/approvals')
+    } catch (_err) {
+      return c.json({ error: 'DB_ERROR', message: 'Could not create approval request. Please try again.' }, 500)
+    }
   })
 
   route.post('/approvals/:id/decision', abacGuardApprove, async (c) => {
@@ -400,9 +404,10 @@ export function createApiRoute() {
   })
 
   route.post('/execution/:id/status', async (c) => {
-    const repo = createRepo(c.env.DB)
-    const id = c.req.param('id')
-    const body = await c.req.parseBody()
+    try {
+      const repo = createRepo(c.env.DB)
+      const id = c.req.param('id')
+      const body = await c.req.parseBody()
     const status = String(body.status || 'pending') as any
     const updates: Record<string, unknown> = { status }
     if (status === 'running' ) updates.started_at = new Date().toISOString()
@@ -438,6 +443,9 @@ export function createApiRoute() {
       ).catch(() => {})
     }
     return c.json({ ok: true, id, status })
+    } catch (_err) {
+      return c.json({ error: 'DB_ERROR', message: 'Could not update execution status. Please try again.' }, 500)
+    }
   })
 
   // ---- P3: Connectors ----

@@ -8,6 +8,8 @@
 //     /api/v1/metrics-snapshot — trigger manual snapshot write
 // P8: /api/v1/anomaly-detect — ML/AI anomaly detection on metrics
 //     /api/v1/audit-events — audit log v2 (sanitized, read-only)
+// P21: api_request_log — fire-and-catch D1 logging on every authenticated request
+//      Cache-Control: no-store on all sensitive responses
 // ============================================================
 
 import { Hono } from 'hono'
@@ -45,7 +47,7 @@ export function createApiV1Route() {
       status: 'ok',
       platform: 'Sovereign OS Platform',
       api: 'Public API Gateway v1',
-      version: '2.0.0-P22',
+      version: '2.1.0-P21',
       endpoints: [
         { path: '/api/v1/health', auth: 'none', description: 'API health check' },
         { path: '/api/v1/docs', auth: 'none', description: 'API documentation' },
@@ -66,8 +68,8 @@ export function createApiV1Route() {
     return c.json({
       status: 'ok',
       platform: 'Sovereign OS Platform',
-      version: '2.0.0-P22',
-      phase: 'P22 — Layout Refactor, Version Consistency, D1 Verification, Perf Observability',
+      version: '2.1.0-P21',
+      phase: 'P21 — Multi-Tenant SSO, Tenant Plans, Billing Hooks, Operator Onboarding',
       api_version: 'v1',
       email_delivery: !!(c.env.RESEND_API_KEY) ? 'configured' : 'not-configured',
       timestamp: new Date().toISOString(),
@@ -144,11 +146,30 @@ export function createApiV1Route() {
     // Track usage (async — don't block response)
     repo.incrementPublicApiKeyUsage(keyHash).catch(() => {})
 
+    // P21: Log API request to D1 api_request_log (fire-and-catch — never blocks)
+    const reqStart = Date.now()
+
     // Attach to context
     ;(c as unknown as Record<string, unknown>)['publicApiKey'] = apiKey
     ;(c as unknown as Record<string, unknown>)['rateLimitResult'] = rateResult
+    ;(c as unknown as Record<string, unknown>)['reqStart'] = reqStart
 
-    return next()
+    await next()
+
+    // Log after response (duration available)
+    const duration = Date.now() - reqStart
+    if (c.env?.DB) {
+      c.env.DB.prepare(
+        `INSERT OR IGNORE INTO api_request_log (api_version, path, method, status_code, api_key_id, tenant_id, duration_ms)
+         VALUES ('v1', ?, ?, ?, ?, 'default', ?)`
+      ).bind(
+        c.req.path,
+        c.req.method,
+        c.res?.status ?? 200,
+        apiKey.id,
+        duration
+      ).run().catch(() => { /* non-critical — discard silently */ })
+    }
   }
 
   // GET /api/v1/metrics — Platform metrics (sanitized)
