@@ -230,7 +230,7 @@ export function createDashboardRoute() {
         <a href="/health-dashboard" class="btn btn-ghost btn-sm">🏥 Health</a>
         <span style="margin-left:auto;display:flex;gap:8px;align-items:center">
           <span style="font-size:11px;color:var(--text3)">Storage:</span> ${persistBadge}
-          <span class="badge badge-blue" style="font-size:10px">v1.9.0-P20</span>
+          <span class="badge badge-blue" style="font-size:10px">v2.0.0-P21</span>
         </span>
       </div>
 
@@ -326,7 +326,7 @@ export function createDashboardRoute() {
           </div>
           <div style="display:flex;flex-direction:column;gap:8px">
             ${[
-              { label: 'Platform Version', value: '1.9.0-P20', color: 'var(--accent)' },
+              { label: 'Platform Version', value: '2.0.0-P21', color: 'var(--accent)' },
               { label: 'Auth Status', value: isAuth ? 'Authenticated' : 'Guest', color: isAuth ? 'var(--green)' : 'var(--yellow)' },
               { label: 'D1 Database', value: repo.isPersistent ? 'D1 Persistent' : 'In-Memory', color: repo.isPersistent ? 'var(--green)' : 'var(--yellow)' },
               { label: 'Active Sessions', value: String(activeSessions.length), color: activeSessions.length > 0 ? 'var(--green)' : 'var(--text3)' },

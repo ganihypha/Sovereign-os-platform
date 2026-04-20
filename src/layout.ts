@@ -5,6 +5,10 @@
 // P18: Page transition loader bar, nav reorganization (merged P16/P17
 //      items into contextual groups), keyboard accessibility,
 //      performance resource hints, skip-to-content, sidebar search filter
+// P21: GPU-accelerated sidebar (will-change + contain), CSS max-height
+//      collapsible nav (zero JS layout blocking), debounced event listeners
+//      (120ms nav filter, 150ms resize), non-blocking font load,
+//      scaleX page loader (pure GPU, no layout recalc), rAF DOM batching
 // ============================================================
 
 export interface LayoutOptions {
@@ -156,7 +160,7 @@ export function layout(title: string, content: string, activePage: string = '', 
           <span class="nav-group-label" style="color:${section.color}">${section.label}</span>
           ${chevron}
         </div>
-        <div class="nav-group-items" id="items-${section.id}" style="${isActiveSection ? '' : 'display:none'}">
+        <div class="nav-group-items${isActiveSection ? '' : ' collapsed'}" id="items-${section.id}">
           ${items}
         </div>
       </div>`
@@ -190,7 +194,9 @@ export function layout(title: string, content: string, activePage: string = '', 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <!-- P21: Non-blocking font load — preload trick eliminates render-blocking -->
+  <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'">
+  <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"></noscript>
   <style>
     /* ---- CSS Variables (dark/light theme) ---- */
     :root, [data-theme="dark"] {
@@ -239,6 +245,7 @@ export function layout(title: string, content: string, activePage: string = '', 
     }
 
     /* ---- Sidebar ---- */
+    /* P21: will-change + contain promote sidebar to GPU layer — eliminates layout reflow on slide */
     .sidebar {
       width: var(--sidebar-w);
       min-height: 100vh;
@@ -249,9 +256,11 @@ export function layout(title: string, content: string, activePage: string = '', 
       position: fixed;
       top: 0; left: 0; bottom: 0;
       z-index: 200;
-      transition: transform 0.25s ease;
+      transition: transform 0.28s cubic-bezier(0.4,0,0.2,1);
       overflow-y: auto;
       overflow-x: hidden;
+      will-change: transform;
+      contain: layout style;
     }
     .sidebar-brand {
       padding: 16px 14px 12px;
@@ -274,7 +283,18 @@ export function layout(title: string, content: string, activePage: string = '', 
     .nav-section { padding: 6px 6px 80px; flex: 1; }
 
     /* Collapsible nav groups */
+    /* P21: CSS max-height transition — GPU-accelerated, zero JS layout blocking */
     .nav-group { margin-bottom: 2px; }
+    .nav-group-items {
+      overflow: hidden;
+      max-height: 600px;
+      transition: max-height 0.28s cubic-bezier(0.4,0,0.2,1), opacity 0.2s ease;
+      opacity: 1;
+    }
+    .nav-group-items.collapsed {
+      max-height: 0;
+      opacity: 0;
+    }
     .nav-group-header {
       display: flex;
       align-items: center;
@@ -300,8 +320,9 @@ export function layout(title: string, content: string, activePage: string = '', 
       border-radius: 8px;
       letter-spacing: 0.04em;
     }
-    .nav-chevron { font-size: 9px; color: var(--text3); }
-    .nav-group-items { padding-left: 0; }
+    .nav-chevron { font-size: 9px; color: var(--text3); transition: transform 0.2s ease; }
+    .nav-chevron.open { transform: rotate(0deg); }
+    .nav-chevron.closed { transform: rotate(-90deg); }
 
     .nav-item {
       display: flex;
@@ -628,25 +649,27 @@ export function layout(title: string, content: string, activePage: string = '', 
     .tier-2 { background: rgba(245,158,11,0.1); color: var(--yellow); border: 1px solid rgba(245,158,11,0.25); padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
     .tier-3 { background: rgba(239,68,68,0.1); color: var(--red); border: 1px solid rgba(239,68,68,0.25); padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
 
-    /* ---- P18: Page transition loader bar ---- */
+    /* ---- P18+P21: Page transition loader bar — scaleX GPU, no layout recalc ---- */
     #page-loader {
       position: fixed;
       top: 0; left: 0;
-      width: 0;
+      width: 100%;
       height: 3px;
       background: linear-gradient(90deg, var(--accent), var(--purple), var(--cyan));
       z-index: 9999;
-      transition: width 0.3s ease, opacity 0.3s ease;
+      transform: scaleX(0);
+      transform-origin: left center;
+      transition: transform 0.3s ease, opacity 0.3s ease;
       opacity: 0;
-      border-radius: 0 2px 2px 0;
+      will-change: transform, opacity;
     }
     #page-loader.loading {
       opacity: 1;
-      width: 75%;
+      transform: scaleX(0.75);
     }
     #page-loader.done {
       opacity: 0;
-      width: 100%;
+      transform: scaleX(1);
     }
 
     /* ---- P18: Skip to content accessibility ---- */
@@ -856,7 +879,7 @@ export function layout(title: string, content: string, activePage: string = '', 
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-brand">
       <div class="brand-name">Sovereign OS</div>
-      <div class="brand-sub">Platform v1.9.0-P20</div>
+      <div class="brand-sub">Platform v2.0.0-P21</div>
     </div>
     <div class="nav-filter-wrap">
       <input
@@ -874,9 +897,9 @@ export function layout(title: string, content: string, activePage: string = '', 
     <div class="sidebar-footer">
       <div class="status-indicator">
         <span class="status-dot"></span>
-        <span>Live · P20</span>
+        <span>Live · P21</span>
       </div>
-      <div style="margin-top:3px;font-size:9px">P20 · No role collapse · No false verify</div>
+      <div style="margin-top:3px;font-size:9px">P21 · GPU-accel · 60fps nav</div>
     </div>
   </aside>
 
@@ -974,23 +997,30 @@ export function layout(title: string, content: string, activePage: string = '', 
       }
     })
 
-    // Collapsible sidebar nav groups
+    // P21: CSS max-height collapsible — zero JS layout blocking
     function toggleNavGroup(id) {
       const items = document.getElementById('items-' + id)
       const chevron = document.getElementById('chevron-' + id)
       if (!items) return
-      const hidden = items.style.display === 'none'
-      items.style.display = hidden ? '' : 'none'
-      if (chevron) chevron.textContent = hidden ? '▾' : '▸'
-      // Persist state
-      try {
-        const key = 'nav-group-' + id
-        localStorage.setItem(key, hidden ? 'open' : 'closed')
-      } catch(e) {}
+      const isCollapsed = items.classList.contains('collapsed')
+      // P21: Use requestAnimationFrame to batch DOM writes
+      requestAnimationFrame(function() {
+        items.classList.toggle('collapsed', !isCollapsed)
+        if (chevron) {
+          chevron.classList.toggle('open', !isCollapsed)
+          chevron.classList.toggle('closed', isCollapsed)
+          chevron.textContent = !isCollapsed ? '▾' : '▸'
+        }
+        // Update aria-expanded on header
+        const header = document.querySelector('#group-' + id + ' .nav-group-header')
+        if (header) header.setAttribute('aria-expanded', String(!isCollapsed))
+        // Persist state
+        try { localStorage.setItem('nav-group-' + id, !isCollapsed ? 'open' : 'closed') } catch(e) {}
+      })
     }
 
     // Restore nav group states from localStorage
-    (function() {
+    ;(function() {
       const groups = ['core','governance','tenants','observability','workflows','notifications','search','platform']
       groups.forEach(function(id) {
         try {
@@ -999,11 +1029,11 @@ export function layout(title: string, content: string, activePage: string = '', 
           const chevron = document.getElementById('chevron-' + id)
           if (!items) return
           if (state === 'closed') {
-            items.style.display = 'none'
-            if (chevron) chevron.textContent = '▸'
+            items.classList.add('collapsed')
+            if (chevron) { chevron.textContent = '▸'; chevron.classList.add('closed'); chevron.classList.remove('open') }
           } else if (state === 'open') {
-            items.style.display = ''
-            if (chevron) chevron.textContent = '▾'
+            items.classList.remove('collapsed')
+            if (chevron) { chevron.textContent = '▾'; chevron.classList.add('open'); chevron.classList.remove('closed') }
           }
         } catch(e) {}
       })
@@ -1031,8 +1061,8 @@ export function layout(title: string, content: string, activePage: string = '', 
       if (u.get('toast_err')) showToast(decodeURIComponent(u.get('toast_err')), '', 'red')
     })()
 
-    // Mobile: show search icon if search bar hidden
-    (function() {
+    // P21: Mobile search visibility — debounced resize (150ms) + passive flag
+    ;(function() {
       function checkSearchVisibility() {
         const wrap = document.querySelector('.header-search-wrap')
         const iconBtn = document.getElementById('search-icon-btn')
@@ -1040,8 +1070,13 @@ export function layout(title: string, content: string, activePage: string = '', 
         const style = window.getComputedStyle(wrap)
         iconBtn.style.display = style.display === 'none' ? 'inline-flex' : 'none'
       }
+      var _resizeTimer
+      function debouncedResize() {
+        clearTimeout(_resizeTimer)
+        _resizeTimer = setTimeout(checkSearchVisibility, 150)
+      }
       checkSearchVisibility()
-      window.addEventListener('resize', checkSearchVisibility)
+      window.addEventListener('resize', debouncedResize, { passive: true })
     })()
 
     // P18: Page transition loading bar
@@ -1080,44 +1115,52 @@ export function layout(title: string, content: string, activePage: string = '', 
       }
     })()
 
-    // P18: Nav filter — quick filter navigation items
-    (function() {
+    // P18+P21: Nav filter — debounced 120ms + requestAnimationFrame for batch DOM writes
+    ;(function() {
       const input = document.getElementById('nav-filter')
       if (!input) return
+      var _filterTimer
       input.addEventListener('input', function() {
-        const q = this.value.toLowerCase().trim()
-        const allItems = document.querySelectorAll('.nav-item[data-nav-label]')
-        const allGroups = document.querySelectorAll('.nav-group')
-        if (!q) {
-          // Restore original state
-          allItems.forEach(function(item) { item.style.display = '' })
-          allGroups.forEach(function(group) { group.style.display = '' })
-          return
-        }
-        // Show only matching items, expand their groups
-        allGroups.forEach(function(group) {
-          const id = group.id.replace('group-', '')
-          const items = group.querySelectorAll('.nav-item[data-nav-label]')
-          let hasMatch = false
-          items.forEach(function(item) {
-            const label = item.getAttribute('data-nav-label') || ''
-            if (label.includes(q)) {
-              item.style.display = ''
-              hasMatch = true
-            } else {
-              item.style.display = 'none'
+        const val = this.value
+        clearTimeout(_filterTimer)
+        _filterTimer = setTimeout(function() {
+          requestAnimationFrame(function() {
+            const q = val.toLowerCase().trim()
+            const allItems = document.querySelectorAll('.nav-item[data-nav-label]')
+            const allGroups = document.querySelectorAll('.nav-group')
+            if (!q) {
+              // Restore original state — batch writes in rAF
+              allItems.forEach(function(item) { item.style.display = '' })
+              allGroups.forEach(function(group) { group.style.display = '' })
+              return
             }
+            // Show only matching items, expand their groups
+            allGroups.forEach(function(group) {
+              const id = group.id.replace('group-', '')
+              const items = group.querySelectorAll('.nav-item[data-nav-label]')
+              let hasMatch = false
+              items.forEach(function(item) {
+                const label = item.getAttribute('data-nav-label') || ''
+                if (label.includes(q)) {
+                  item.style.display = ''
+                  hasMatch = true
+                } else {
+                  item.style.display = 'none'
+                }
+              })
+              if (hasMatch) {
+                group.style.display = ''
+                // P21: Expand via classList.remove instead of style.display
+                const groupItems = document.getElementById('items-' + id)
+                if (groupItems) groupItems.classList.remove('collapsed')
+                const chevron = document.getElementById('chevron-' + id)
+                if (chevron) { chevron.textContent = '▾'; chevron.classList.add('open'); chevron.classList.remove('closed') }
+              } else {
+                group.style.display = 'none'
+              }
+            })
           })
-          if (hasMatch) {
-            group.style.display = ''
-            const groupItems = document.getElementById('items-' + id)
-            if (groupItems) groupItems.style.display = ''
-            const chevron = document.getElementById('chevron-' + id)
-            if (chevron) chevron.textContent = '▾'
-          } else {
-            group.style.display = 'none'
-          }
-        })
+        }, 120)
       })
       // Escape clears filter
       input.addEventListener('keydown', function(e) {

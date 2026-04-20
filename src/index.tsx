@@ -1,6 +1,6 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — MAIN ENTRY (P19 — Platform Hardening, Email Delivery, Session Tracking, Changelog)
-// Version: 1.9.0-P19
+// SOVEREIGN OS PLATFORM — MAIN ENTRY (P21 — GPU-Accel Nav, Debounced Events, Non-blocking Fonts, scaleX Loader)
+// Version: 2.0.0-P21
 // Platform: Cloudflare Pages + Workers
 // Hono Framework — Edge-first
 // ============================================================
@@ -294,8 +294,8 @@ app.get('/health', (c) => {
   return c.json({
     status: 'ok',
     platform: 'Sovereign OS Platform',
-    version: '1.9.0-P19',
-    phase: 'P19 — Platform Hardening, Email Delivery, Session Tracking, Changelog',
+    version: '2.0.0-P21',
+    phase: 'P21 — GPU-Accelerated UI, Debounced Events, Non-blocking Fonts, scaleX Loader',
     persistence: repo.isPersistent ? 'd1' : 'in-memory',
     auth_configured: !!c.env.PLATFORM_API_KEY,
     kv_rate_limiter: !!c.env.RATE_LIMITER_KV ? 'kv-enforced' : 'in-memory-partial',
@@ -319,8 +319,8 @@ app.get('/status', async (c) => {
     return c.json({
       status: 'operational',
       platform: 'Sovereign OS Platform',
-      version: '1.9.0-P19',
-      phase: 'P19 — Platform Hardening, Email Delivery, Session Tracking, Changelog',
+      version: '2.0.0-P21',
+      phase: 'P21 — GPU-Accelerated UI, Debounced Events, Non-blocking Fonts, scaleX Loader',
       persistence: repo.isPersistent ? 'd1-persistent' : 'in-memory-ephemeral',
       auth_configured: !!c.env.PLATFORM_API_KEY,
       kv_rate_limiter: !!c.env.RATE_LIMITER_KV ? 'kv-enforced' : 'in-memory-partial',
