@@ -14,15 +14,15 @@ requirements, and a stable canon layer that survives sessions.
 
 | Item | Value |
 |------|-------|
-| **Version** | `1.9.0-P19` |
-| **Phase** | P19 — Platform Hardening, Email Delivery, Session Tracking, Changelog |
+| **Version** | `1.9.0-P20` |
+| **Phase** | P20 — Performance Overhaul, D1 Search Logging, Analytics Upgrade |
 | **Status** | ✅ LIVE-VERIFIED |
 | **Production** | https://sovereign-os-platform.pages.dev |
 | **GitHub** | https://github.com/ganihypha/Sovereign-os-platform |
-| **Latest Commit** | `caee7ef` |
+| **Latest Commit** | `2efde22` |
 | **D1 Database** | `sovereign-os-production` (f6067325-9ea4-44bc-a5fd-e3d19367e657) |
-| **Migrations Applied** | 0001 → 0019 |
-| **Active Surfaces** | 97 total (90 P0-P18 + 7 P19 new/enhanced) |
+| **Migrations Applied** | 0001 → 0020 |
+| **Active Surfaces** | 97 total (90 P0-P18 + 7 P19/P20 new/enhanced) |
 | **KV Namespace** | RATE_LIMITER_KV (b36f941ace3445d68d335d8cebc0803a) |
 
 ---
