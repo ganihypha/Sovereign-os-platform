@@ -823,5 +823,226 @@ export function createAuditRoute() {
     }
   })
 
+  // ============================================================
+  // P23: GET /audit/export — Generate CSV from audit_log_v2 (last 500 records)
+  // Async: creates job in audit_export_jobs, stores CSV inline, marks completed.
+  // Response: redirect to /audit/export/status?job=<id> after creation
+  // ============================================================
+  route.get('/export', async (c) => {
+    const isAuth = await isAuthenticated(c, c.env)
+    if (!isAuth) {
+      return c.html(layout('Audit Export — P23', `
+        <div style="padding:40px;text-align:center">
+          <p style="color:var(--text2)">🔒 Authentication required.</p>
+          <a href="/dashboard" style="color:var(--accent)">← Dashboard</a>
+        </div>
+      `, 'audit'))
+    }
+
+    const db = c.env.DB
+    const tenantFilter = c.req.query('tenant') || 'default'
+    const jobId = 'aexj-' + crypto.randomUUID().replace(/-/g, '').slice(0, 12)
+
+    if (!db) {
+      return c.html(layout('Audit Export — P23', `
+        <div style="padding:24px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);border-radius:8px;color:#ef4444">
+          <h2 style="font-size:15px;font-weight:700;margin-bottom:8px">DB Not Available</h2>
+          <p style="font-size:13px">D1 database not configured. Cannot generate audit export.</p>
+          <a href="/audit" style="color:var(--accent);font-size:12px">← Audit Trail</a>
+        </div>
+      `, 'audit'), 503)
+    }
+
+    // Create job record (status: running)
+    try {
+      await db.prepare(
+        `INSERT INTO audit_export_jobs (id, tenant_id, status, created_at) VALUES (?, ?, 'running', datetime('now'))`
+      ).bind(jobId, tenantFilter).run()
+    } catch (_e) { /* non-blocking — table may not exist yet, continue anyway */ }
+
+    // Fetch last 500 audit records
+    let csvContent = ''
+    let recordCount = 0
+    let errorMsg = ''
+
+    try {
+      const rows = await db.prepare(
+        `SELECT id, event_type, tenant_id, actor, payload_summary, surface, created_at
+         FROM audit_log_v2 ORDER BY created_at DESC LIMIT 500`
+      ).all<{ id: string; event_type: string; tenant_id: string; actor: string; payload_summary: string; surface: string; created_at: string }>()
+
+      const records = rows.results || []
+      recordCount = records.length
+
+      const headers = ['id', 'event_type', 'tenant_id', 'actor_role', 'description', 'created_at']
+      const csvRows = records.map(r => headers.map(h => {
+        const key = h === 'actor_role' ? 'actor' : h === 'description' ? 'payload_summary' : h
+        const val = (r as Record<string, string>)[key] || ''
+        return '"' + String(val).replace(/"/g, '""') + '"'
+      }).join(','))
+      csvContent = [headers.join(','), ...csvRows].join('\n')
+
+      // Mark job completed, store CSV inline
+      await db.prepare(
+        `UPDATE audit_export_jobs SET status='completed', record_count=?, csv_content=?, completed_at=datetime('now') WHERE id=?`
+      ).bind(recordCount, csvContent, jobId).run().catch(() => {})
+
+    } catch (e) {
+      errorMsg = e instanceof Error ? e.message : String(e)
+      await db.prepare(
+        `UPDATE audit_export_jobs SET status='failed', error_message=?, completed_at=datetime('now') WHERE id=?`
+      ).bind(errorMsg.slice(0, 300), jobId).run().catch(() => {})
+    }
+
+    // If format=csv_direct — stream CSV directly
+    const fmt = c.req.query('format') || ''
+    if (fmt === 'csv' && csvContent) {
+      const ts = new Date().toISOString().slice(0, 10)
+      return new Response(csvContent, {
+        headers: {
+          'Content-Type': 'text/csv; charset=utf-8',
+          'Content-Disposition': `attachment; filename="audit-export-${ts}.csv"`,
+          'X-Export-Job-Id': jobId,
+          'X-Record-Count': String(recordCount),
+        }
+      })
+    }
+
+    // Default: redirect to status page
+    return c.redirect(`/audit/export/status?job=${jobId}`)
+  })
+
+  // ============================================================
+  // P23: GET /audit/export/status — Show export job info + download link
+  // ============================================================
+  route.get('/export/status', async (c) => {
+    const isAuth = await isAuthenticated(c, c.env)
+    if (!isAuth) return c.redirect('/dashboard')
+
+    const jobId = c.req.query('job') || ''
+    const db = c.env.DB
+
+    let job: Record<string, string | number | null> | null = null
+    let recentJobs: Record<string, string | number | null>[] = []
+
+    if (db) {
+      try {
+        if (jobId) {
+          const row = await db.prepare(
+            `SELECT id, tenant_id, status, record_count, error_message, created_at, completed_at FROM audit_export_jobs WHERE id=?`
+          ).bind(jobId).first<Record<string, string | number | null>>()
+          job = row ?? null
+        }
+        const recent = await db.prepare(
+          `SELECT id, tenant_id, status, record_count, error_message, created_at, completed_at
+           FROM audit_export_jobs ORDER BY created_at DESC LIMIT 10`
+        ).all<Record<string, string | number | null>>()
+        recentJobs = recent.results || []
+      } catch (_e) { /* graceful */ }
+    }
+
+    function statusBadge(status: string): string {
+      const map: Record<string, string> = {
+        completed: 'background:rgba(34,197,94,0.1);color:#22c55e;border:1px solid rgba(34,197,94,0.3)',
+        running:   'background:rgba(79,142,247,0.1);color:#4f8ef7;border:1px solid rgba(79,142,247,0.3)',
+        pending:   'background:rgba(245,158,11,0.1);color:#f59e0b;border:1px solid rgba(245,158,11,0.3)',
+        failed:    'background:rgba(239,68,68,0.1);color:#ef4444;border:1px solid rgba(239,68,68,0.3)',
+      }
+      return `<span style="padding:3px 10px;border-radius:4px;font-size:10px;font-weight:700;${map[status] || map.pending}">${status.toUpperCase()}</span>`
+    }
+
+    const content = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;flex-wrap:wrap;gap:12px">
+        <div>
+          <h1 style="font-size:20px;font-weight:700;color:var(--text);margin-bottom:4px">Audit Export Status</h1>
+          <div style="font-size:12px;color:var(--text2)">P23 — Audit CSV export jobs · audit_export_jobs D1 table</div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <a href="/audit/export" style="background:#22c55e;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-size:12px;font-weight:600;text-decoration:none">
+            ↓ New Export Job
+          </a>
+          <a href="/audit/export?format=csv" style="background:var(--bg2);color:var(--text2);border:1px solid var(--border);border-radius:6px;padding:8px 16px;font-size:12px;font-weight:600;text-decoration:none">
+            ↓ Direct CSV Download
+          </a>
+          <a href="/audit" style="background:var(--bg2);color:var(--text2);border:1px solid var(--border);border-radius:6px;padding:8px 14px;font-size:12px;font-weight:600;text-decoration:none">← Audit Trail</a>
+        </div>
+      </div>
+
+      ${job ? `
+      <!-- Current Job Detail -->
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:24px">
+        <div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:12px">Export Job: ${job.id}</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin-bottom:16px">
+          <div style="background:var(--bg3);border-radius:6px;padding:12px">
+            <div style="font-size:10px;color:var(--text3);margin-bottom:4px">STATUS</div>
+            <div>${statusBadge(String(job.status || 'pending'))}</div>
+          </div>
+          <div style="background:var(--bg3);border-radius:6px;padding:12px">
+            <div style="font-size:10px;color:var(--text3);margin-bottom:4px">RECORDS</div>
+            <div style="font-size:20px;font-weight:700;color:#22c55e">${job.record_count ?? '—'}</div>
+          </div>
+          <div style="background:var(--bg3);border-radius:6px;padding:12px">
+            <div style="font-size:10px;color:var(--text3);margin-bottom:4px">CREATED</div>
+            <div style="font-size:11px;color:var(--text2)">${String(job.created_at || '').slice(0, 16)}</div>
+          </div>
+          <div style="background:var(--bg3);border-radius:6px;padding:12px">
+            <div style="font-size:10px;color:var(--text3);margin-bottom:4px">COMPLETED</div>
+            <div style="font-size:11px;color:var(--text2)">${String(job.completed_at || '').slice(0, 16) || '—'}</div>
+          </div>
+        </div>
+        ${job.status === 'completed' ? `
+        <a href="/audit/export?format=csv" style="display:inline-flex;align-items:center;gap:6px;background:#22c55e;color:#fff;border-radius:6px;padding:8px 18px;font-size:13px;font-weight:600;text-decoration:none;margin-top:4px">
+          ↓ Download CSV (${job.record_count} records)
+        </a>
+        ` : ''}
+        ${job.status === 'failed' ? `
+        <div style="margin-top:8px;padding:10px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);border-radius:6px;font-size:12px;color:#ef4444">
+          Error: ${job.error_message || 'Unknown error'}
+        </div>
+        ` : ''}
+      </div>
+      ` : !jobId ? '' : `
+      <div style="padding:16px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:8px;margin-bottom:24px;font-size:12px;color:#f59e0b">
+        Job ID <code>${jobId}</code> not found. It may have been purged or the job table is not yet initialized.
+      </div>`}
+
+      <!-- Recent Jobs -->
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden">
+        <div style="padding:12px 16px;border-bottom:1px solid var(--border)">
+          <span style="font-size:13px;font-weight:600;color:var(--text)">Recent Export Jobs</span>
+          <span style="font-size:11px;color:var(--text3);margin-left:8px">${recentJobs.length} records</span>
+        </div>
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr style="background:var(--bg3)">
+            ${['Job ID','Tenant','Status','Records','Created','Completed'].map(h =>
+              `<th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text3);font-weight:600">${h}</th>`
+            ).join('')}
+          </tr></thead>
+          <tbody>
+            ${recentJobs.length === 0
+              ? `<tr><td colspan="6" style="padding:24px;text-align:center;color:var(--text3);font-size:12px">No export jobs found. <a href="/audit/export" style="color:var(--accent)">Create one →</a></td></tr>`
+              : recentJobs.map(j => `
+              <tr style="border-bottom:1px solid var(--border)">
+                <td style="padding:8px 12px;font-size:10px;font-family:monospace;color:var(--text3)">${j.id}</td>
+                <td style="padding:8px 12px;font-size:11px;color:var(--text2)">${j.tenant_id || 'default'}</td>
+                <td style="padding:8px 12px">${statusBadge(String(j.status || 'pending'))}</td>
+                <td style="padding:8px 12px;font-size:12px;color:#22c55e;font-weight:600">${j.record_count ?? '—'}</td>
+                <td style="padding:8px 12px;font-size:10px;color:var(--text3)">${String(j.created_at || '').slice(0, 16)}</td>
+                <td style="padding:8px 12px;font-size:10px;color:var(--text3)">${String(j.completed_at || '').slice(0, 16) || '—'}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+
+      <div style="margin-top:12px;padding:10px 14px;background:rgba(34,197,94,0.05);border:1px solid rgba(34,197,94,0.15);border-radius:6px;font-size:11px;color:var(--text3)">
+        <span style="color:#22c55e;font-weight:600">P23 Audit Export:</span>
+        Exports pull the last 500 records from audit_log_v2.
+        CSV headers: id, event_type, tenant_id, actor_role, description, created_at.
+        Job metadata stored in audit_export_jobs D1 table.
+      </div>
+    `
+    return c.html(layout('Audit Export Status — P23', content, 'audit'))
+  })
+
   return route
 }

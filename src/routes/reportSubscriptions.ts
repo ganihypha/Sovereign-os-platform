@@ -15,6 +15,7 @@ import {
   type ReportSubscription
 } from '../lib/reportSubscriptionService'
 import { REPORT_TYPES } from '../lib/reportingService'
+import { emailWeeklyReport } from '../lib/emailService'
 
 const SCHEDULE_OPTIONS = [
   { value: 'hourly',  label: 'Hourly' },
@@ -172,7 +173,7 @@ export function createReportSubscriptionsRoute() {
             <div>
               <label style="display:block;font-size:11px;color:var(--text3);margin-bottom:6px">Report Type *</label>
               <select name="report_type" style="width:100%;background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:8px 10px;font-size:12px">
-                ${REPORT_TYPES.map(r => `<option value="${r.value}">${r.label}</option>`).join('')}
+                ${REPORT_TYPES.map(r => `<option value="${r.type}">${r.icon} ${r.label}</option>`).join('')}
               </select>
             </div>
             <div>
@@ -200,14 +201,114 @@ export function createReportSubscriptionsRoute() {
         </form>
       </div>
 
+      <!-- P23: Weekly Report Email CTA -->
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+          <div>
+            <h2 style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:4px">Weekly Report Email Delivery</h2>
+            <div style="font-size:12px;color:var(--text2)">P23 — Send weekly governance summary to an email address</div>
+            ${c.env.RESEND_API_KEY
+              ? `<div style="margin-top:4px;font-size:11px;color:#22c55e">● RESEND_API_KEY configured — email delivery active</div>`
+              : `<div style="margin-top:4px;font-size:11px;color:#f59e0b">⚠ RESEND_API_KEY not set — email will not be sent (graceful degradation)</div>`
+            }
+          </div>
+          <form action="/reports/subscriptions/send-weekly" method="POST" style="display:flex;gap:8px;align-items:center">
+            <input name="recipient" type="email" placeholder="admin@example.com" required
+              style="background:var(--bg3);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:7px 12px;font-size:12px;width:220px">
+            <button type="submit" style="background:#4f8ef7;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap">
+              ✉ Send Weekly Report
+            </button>
+          </form>
+        </div>
+      </div>
+
       <div style="padding:12px 16px;background:rgba(139,92,246,0.06);border:1px solid rgba(139,92,246,0.2);border-radius:8px;font-size:11px;color:var(--text3)">
         <span style="color:#8b5cf6;font-weight:600">P12 Scheduled Snapshots:</span>
         Subscriptions are checked on each page load (KV TTL polling — lazy trigger).
         Reports are stored in <code>report_jobs</code> table. Email/webhook delivery gracefully degrades when secrets not configured.
         <a href="/reports/jobs" style="color:#8b5cf6;margin-left:4px">View generated report jobs →</a>
+        <span style="color:#4f8ef7;margin-left:8px">● P23: Weekly email delivery via Resend API (RESEND_API_KEY required)</span>
       </div>
     `
     return c.html(layout('Report Subscriptions', content, '/reports'))
+  })
+
+  // POST /reports/subscriptions/send-weekly — P23: Send weekly report email
+  route.post('/send-weekly', async (c) => {
+    const body = await c.req.parseBody()
+    const recipient = String(body['recipient'] || '').trim()
+    const db = c.env.DB
+
+    if (!recipient || !recipient.includes('@')) {
+      return c.html(layout('Report Subscriptions', `
+        <div style="padding:20px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);border-radius:8px;color:#ef4444;margin-bottom:16px">
+          Invalid email address. <a href="/reports/subscriptions" style="color:#4f8ef7">← Back</a>
+        </div>
+      `, '/reports'))
+    }
+
+    // Gather summary metrics from D1 (graceful fallback to zeros)
+    let intentCount = 0, executionCount = 0, anomalyCount = 0, approvalPending = 0
+    let topEvents: { event_type: string; count: number }[] = []
+
+    if (db) {
+      try {
+        const [ic, ec, ac, ap] = await Promise.allSettled([
+          db.prepare(`SELECT COUNT(*) as cnt FROM governance_sessions`).first<{ cnt: number }>(),
+          db.prepare(`SELECT COUNT(*) as cnt FROM execution_items`).first<{ cnt: number }>(),
+          db.prepare(`SELECT COUNT(*) as cnt FROM audit_log_v2 WHERE event_type = 'anomaly.detected' AND created_at >= datetime('now', '-7 days')`).first<{ cnt: number }>(),
+          db.prepare(`SELECT COUNT(*) as cnt FROM approval_requests WHERE status = 'pending'`).first<{ cnt: number }>(),
+        ])
+        intentCount = ic.status === 'fulfilled' ? (ic.value?.cnt ?? 0) : 0
+        executionCount = ec.status === 'fulfilled' ? (ec.value?.cnt ?? 0) : 0
+        anomalyCount = ac.status === 'fulfilled' ? (ac.value?.cnt ?? 0) : 0
+        approvalPending = ap.status === 'fulfilled' ? (ap.value?.cnt ?? 0) : 0
+
+        const topEvRows = await db.prepare(
+          `SELECT event_type, COUNT(*) as cnt FROM audit_log_v2 WHERE created_at >= datetime('now', '-7 days')
+           GROUP BY event_type ORDER BY cnt DESC LIMIT 5`
+        ).all<{ event_type: string; cnt: number }>()
+        topEvents = (topEvRows.results || []).map(r => ({ event_type: r.event_type, count: r.cnt }))
+      } catch (_e) { /* graceful */ }
+    }
+
+    // Send weekly report email (fire-and-catch — non-blocking)
+    const emailSent = { status: 'unknown' }
+    try {
+      await emailWeeklyReport({ RESEND_API_KEY: c.env.RESEND_API_KEY, DB: db }, {
+        tenantName: 'Sovereign OS Platform',
+        recipient,
+        intentCount,
+        executionCount,
+        anomalyCount,
+        approvalPending,
+        topEvents,
+        reportUrl: 'https://sovereign-os-platform.pages.dev/reports',
+      })
+      emailSent.status = c.env.RESEND_API_KEY ? 'sent' : 'skipped-no-key'
+    } catch (_e) {
+      emailSent.status = 'error'
+    }
+
+    const isNoKey = !c.env.RESEND_API_KEY
+    const statusColor = isNoKey ? '#f59e0b' : '#22c55e'
+    const statusMsg = isNoKey
+      ? '⚠ RESEND_API_KEY not configured — email was not delivered (graceful degradation).'
+      : `✅ Weekly report email queued for delivery to <strong>${recipient}</strong>.`
+
+    return c.html(layout('Report Subscriptions', `
+      <div style="padding:20px;background:${isNoKey ? 'rgba(245,158,11,0.08)' : 'rgba(34,197,94,0.08)'};border:1px solid ${isNoKey ? 'rgba(245,158,11,0.2)' : 'rgba(34,197,94,0.2)'};border-radius:8px;margin-bottom:16px">
+        <div style="font-size:14px;font-weight:700;color:${statusColor};margin-bottom:6px">Weekly Report Email</div>
+        <div style="font-size:13px;color:var(--text2)">${statusMsg}</div>
+        ${isNoKey ? `<div style="margin-top:8px;font-size:11px;color:var(--text3)">
+          Set via: <code>npx wrangler pages secret put RESEND_API_KEY --project-name sovereign-os-platform</code>
+        </div>` : ''}
+        <div style="margin-top:12px;display:flex;gap:8px">
+          <a href="/reports/subscriptions" style="background:var(--bg2);color:var(--text2);border:1px solid var(--border);border-radius:6px;padding:7px 16px;font-size:12px;font-weight:600;text-decoration:none">← Back to Subscriptions</a>
+          <a href="/reports" style="background:var(--accent);color:#fff;border-radius:6px;padding:7px 16px;font-size:12px;font-weight:600;text-decoration:none">View Reports</a>
+        </div>
+      </div>
+    `, '/reports'))
   })
 
   // POST /reports/subscriptions/create

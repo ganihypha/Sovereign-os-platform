@@ -56,6 +56,7 @@ export function createApiV1Route() {
         { path: '/api/v1/sessions', auth: 'bearer', description: 'Active sessions (sanitized)' },
         { path: '/api/v1/status', auth: 'bearer', description: 'Platform status' },
         { path: '/api/v1/metrics-history', auth: 'bearer', description: 'Time-series metrics snapshots' },
+        { path: '/api/v1/metrics/snapshots', auth: 'bearer', description: 'P23: Last 24h cron metrics snapshots for charting' },
         { path: '/api/v1/audit-events', auth: 'bearer', description: 'Audit log (sanitized, read-only)' },
       ],
       docs: '/api/v1/docs',
@@ -320,6 +321,56 @@ export function createApiV1Route() {
         : 'statistical-only',
       timestamp: new Date().toISOString(),
     }, 200, rateLimitHeaders(rateResult))
+  })
+
+  // ============================================================
+  // P23: GET /api/v1/metrics/snapshots — last 24h cron snapshots for charting
+  // Returns metrics_cron_log records (most recent first, max 48)
+  // ============================================================
+  app.get('/metrics/snapshots', requirePublicKey, async (c) => {
+    const rateResult = (c as unknown as Record<string, unknown>)['rateLimitResult'] as ReturnType<typeof checkRateLimit>
+    const db = c.env.DB
+
+    const limitParam = Math.min(parseInt(c.req.query('limit') ?? '24', 10), 48)
+    const tenantId = c.req.query('tenant_id') || 'default'
+
+    if (!db) {
+      return c.json({
+        snapshots: [],
+        count: 0,
+        tenant_id: tenantId,
+        note: 'D1 not configured — no snapshot data available',
+        timestamp: new Date().toISOString(),
+      }, 200, rateLimitHeaders(rateResult))
+    }
+
+    try {
+      const rows = await db.prepare(
+        `SELECT id, snapshot_type, intent_count, execution_count, anomaly_count, approval_count, session_count, tenant_id, created_at
+         FROM metrics_cron_log
+         WHERE tenant_id = ?
+         ORDER BY created_at DESC LIMIT ?`
+      ).bind(tenantId, limitParam).all<{
+        id: number; snapshot_type: string;
+        intent_count: number; execution_count: number; anomaly_count: number;
+        approval_count: number; session_count: number; tenant_id: string; created_at: string
+      }>()
+
+      return c.json({
+        snapshots: rows.results || [],
+        count: (rows.results || []).length,
+        tenant_id: tenantId,
+        timestamp: new Date().toISOString(),
+      }, 200, rateLimitHeaders(rateResult))
+    } catch (_e) {
+      return c.json({
+        snapshots: [],
+        count: 0,
+        tenant_id: tenantId,
+        note: 'metrics_cron_log table not yet available — apply migration 0025',
+        timestamp: new Date().toISOString(),
+      }, 200, rateLimitHeaders(rateResult))
+    }
   })
 
   // GET /api/v1/audit-events — Sanitized audit log v2 (P8)

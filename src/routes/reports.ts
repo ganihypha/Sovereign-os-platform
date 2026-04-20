@@ -1,5 +1,5 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — CROSS-LANE REPORTS (P10 UPGRADE)
+// SOVEREIGN OS PLATFORM — CROSS-LANE REPORTS (P23 UPGRADE)
 // P4: Real D1-aggregated metrics. No fake numbers.
 // P6: Added Chart.js visual observability charts.
 // P7: Metrics snapshot time-series (metrics_snapshots table).
@@ -8,6 +8,10 @@
 // P10: Downloadable CSV/JSON governance reports (6 report types).
 //      Report templates, filters (date range, tenant, status).
 //      Report job history tracking via report_jobs table.
+// P23: Real anomaly trend chart (from audit_log_v2 anomaly.detected events).
+//      governance activity over time from metrics_cron_log.
+//      Date range filter (7d/30d/90d) for timeline chart.
+//      /api/v1/metrics/snapshots returns real D1 time-series.
 // All metrics computed from actual D1 queries.
 // /reports — visual dashboard with charts + P10 download panel
 // /reports/download — POST: generate + download report
@@ -46,15 +50,67 @@ function statusBar(label: string, value: number, max: number, color: string): st
   </div>`
 }
 
+// ---- P23: Helper — fetch last N days of anomaly counts from audit_log_v2 ----
+async function getAnomalyTrend(db: D1Database | undefined, days: number): Promise<{labels: string[], counts: number[]}> {
+  const labels: string[] = []
+  const counts: number[] = []
+  if (!db) {
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(); d.setDate(d.getDate() - i)
+      labels.push(d.toLocaleDateString('en', { month: 'short', day: 'numeric' }))
+      counts.push(0)
+    }
+    return { labels, counts }
+  }
+  try {
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(); d.setDate(d.getDate() - i)
+      const dateStr = d.toISOString().slice(0, 10)
+      labels.push(d.toLocaleDateString('en', { month: 'short', day: 'numeric' }))
+      const row = await db.prepare(
+        `SELECT COUNT(*) as cnt FROM audit_log_v2 WHERE event_type = 'anomaly.detected' AND created_at LIKE ?`
+      ).bind(dateStr + '%').first<{ cnt: number }>()
+      counts.push(row?.cnt ?? 0)
+    }
+  } catch (_e) { /* graceful — return zeros */ }
+  return { labels, counts }
+}
+
+// ---- P23: Helper — fetch last 24h metrics_cron_log snapshots ----
+async function getCronSnapshots(db: D1Database | undefined, limit = 24): Promise<{labels: string[], intents: number[], executions: number[], anomalies: number[]}> {
+  const empty = { labels: [] as string[], intents: [] as number[], executions: [] as number[], anomalies: [] as number[] }
+  if (!db) return empty
+  try {
+    const rows = await db.prepare(
+      `SELECT intent_count, execution_count, anomaly_count, created_at FROM metrics_cron_log ORDER BY created_at DESC LIMIT ?`
+    ).bind(limit).all<{ intent_count: number; execution_count: number; anomaly_count: number; created_at: string }>()
+    const items = (rows.results || []).reverse()
+    return {
+      labels: items.map(r => {
+        const d = new Date(r.created_at)
+        return d.toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit', hour12: false })
+      }),
+      intents: items.map(r => r.intent_count ?? 0),
+      executions: items.map(r => r.execution_count ?? 0),
+      anomalies: items.map(r => r.anomaly_count ?? 0),
+    }
+  } catch (_e) { return empty }
+}
+
 export function createReportsRoute() {
   const route = new Hono<{ Bindings: Env }>()
 
   // GET /reports — visual dashboard with Chart.js observability charts
   route.get('/', async (c) => {
     const repo = createRepo(c.env.DB)
+    const db = c.env.DB
 
     // P7: Auto-trigger daily snapshot (fire-and-forget — never blocks page)
     takeMetricsSnapshot(repo, { tenantId: 'tenant-default', snapshotType: 'daily' }).catch(() => {})
+
+    // P23: date range filter (default 7d)
+    const rangeParam = c.req.query('range') || '7'
+    const rangeDays = [7, 30, 90].includes(Number(rangeParam)) ? Number(rangeParam) : 7
 
     // Fetch all real data from D1
     const [
@@ -72,6 +128,12 @@ export function createReportsRoute() {
       repo.getCanonCandidates(),
       repo.getAlerts(),
       repo.getProductLanes(),
+    ])
+
+    // P23: Fetch anomaly trend + cron snapshots in parallel (non-blocking)
+    const [anomalyTrend, cronSnaps] = await Promise.all([
+      getAnomalyTrend(db, rangeDays).catch(() => ({ labels: [] as string[], counts: [] as number[] })),
+      getCronSnapshots(db, 24).catch(() => ({ labels: [] as string[], intents: [] as number[], executions: [] as number[], anomalies: [] as number[] })),
     ])
 
     const metrics = {
@@ -130,18 +192,31 @@ export function createReportsRoute() {
       : sessionCountByDay.map(() => 0)
 
     const content = `
-    <!-- Chart.js CDN — P6 Observability Charts -->
+    <!-- Chart.js CDN — P6/P23 Observability Charts -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;flex-wrap:wrap;gap:12px">
       <div>
         <h1 style="font-size:20px;font-weight:700;color:var(--text);margin-bottom:4px">Cross-Lane Reports</h1>
         <div style="font-size:12px;color:var(--text2)">Real-time governance health metrics · All data from D1 · Generated ${new Date().toLocaleString()}</div>
-        <div style="margin-top:4px;font-size:11px;color:#22c55e">● P6 — Visual Observability Charts Active</div>
+        <div style="margin-top:4px;font-size:11px;color:#22c55e">● P23 — Anomaly Trend + Governance Timeline · Real D1 Charts Active</div>
       </div>
-      <a href="/api/reports" target="_blank" style="background:var(--bg2);color:var(--text2);border:1px solid var(--border);border-radius:6px;padding:8px 16px;font-size:12px;font-weight:600;text-decoration:none">
-        Export JSON →
-      </a>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <!-- P23: Date range filter -->
+        <div style="display:flex;gap:4px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:3px">
+          ${[['7','7d'],['30','30d'],['90','90d']].map(([val,label]) => `
+          <a href="/reports?range=${val}" style="padding:4px 10px;border-radius:4px;font-size:11px;font-weight:600;text-decoration:none;
+            ${rangeDays === Number(val) ? 'background:#4f8ef7;color:#fff' : 'color:var(--text3);'}">
+            ${label}
+          </a>`).join('')}
+        </div>
+        <a href="/audit/export" style="background:var(--bg2);color:var(--text2);border:1px solid var(--border);border-radius:6px;padding:8px 14px;font-size:12px;font-weight:600;text-decoration:none">
+          ↓ Audit Export
+        </a>
+        <a href="/api/reports" target="_blank" style="background:var(--bg2);color:var(--text2);border:1px solid var(--border);border-radius:6px;padding:8px 14px;font-size:12px;font-weight:600;text-decoration:none">
+          Export JSON →
+        </a>
+      </div>
     </div>
 
     <!-- Primary Metrics -->
@@ -215,6 +290,36 @@ export function createReportsRoute() {
       <canvas id="sessionTimelineChart" height="80"></canvas>
     </div>
 
+    <!-- P23: ANOMALY TREND CHART + GOVERNANCE ACTIVITY TIMELINE (metrics_cron_log) -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px">
+
+      <!-- P23 Chart: Anomaly Count Trend from audit_log_v2 -->
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:20px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+          <div style="font-size:13px;font-weight:600;color:var(--text)">Anomaly Count Trend</div>
+          <span style="font-size:10px;padding:2px 8px;border-radius:3px;background:rgba(239,68,68,0.1);color:#ef4444;border:1px solid rgba(239,68,68,0.3)">
+            ● Last ${rangeDays}d from audit_log_v2
+          </span>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:12px">anomaly.detected events per day (real D1 query)</div>
+        <canvas id="anomalyTrendChart" height="100"></canvas>
+      </div>
+
+      <!-- P23 Chart: Governance Activity (metrics_cron_log) -->
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:20px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+          <div style="font-size:13px;font-weight:600;color:var(--text)">Governance Activity (Cron Log)</div>
+          <span style="font-size:10px;padding:2px 8px;border-radius:3px;${cronSnaps.labels.length > 0 ? 'background:rgba(34,197,94,0.1);color:#22c55e;border:1px solid rgba(34,197,94,0.3)' : 'background:rgba(245,158,11,0.1);color:#f59e0b;border:1px solid rgba(245,158,11,0.3)'}">
+            ${cronSnaps.labels.length > 0 ? `● ${cronSnaps.labels.length} cron snapshots` : '⚠ No cron data yet'}
+          </span>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:12px">
+          ${cronSnaps.labels.length > 0 ? 'Last 24 hourly snapshots from metrics_cron_log' : 'Cron trigger will populate data hourly once deployed'}
+        </div>
+        <canvas id="cronActivityChart" height="100"></canvas>
+      </div>
+    </div>
+
     <!-- Legacy bar charts -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px">
       <!-- Execution Health -->
@@ -262,6 +367,7 @@ export function createReportsRoute() {
       <span style="color:#22c55e;margin-left:8px">● P6 Chart.js observability layer active.</span>
       <span style="color:#a855f7;margin-left:8px">● P7 metrics_snapshots time-series active (${snapshotHistory.length} snapshots).</span>
       <span style="color:#f97316;margin-left:8px">● P10 Governance Report Downloads active.</span>
+      <span style="color:#ef4444;margin-left:8px">● P23 Anomaly Trend (${anomalyTrend.counts.reduce((a,b)=>a+b,0)} events/${rangeDays}d) · Cron log (${cronSnaps.labels.length} snapshots) active.</span>
     </div>
 
     <!-- P10: GOVERNANCE REPORT DOWNLOAD PANEL -->
@@ -450,6 +556,92 @@ export function createReportsRoute() {
             plugins: { legend: { display: true, labels: { color: '#9aa3b2', boxWidth: 12, font: { size: 10 } } } },
             scales: {
               x: { grid: { display: false }, ticks: { color: '#9aa3b2' } },
+              y: { grid: { color: '#2a2d35' }, ticks: { color: '#9aa3b2', stepSize: 1 }, beginAtZero: true }
+            }
+          }
+        })
+      }
+
+      // 5. P23: Anomaly Trend — real audit_log_v2 anomaly.detected counts
+      const anomalyCtx = document.getElementById('anomalyTrendChart')
+      if (anomalyCtx) {
+        new Chart(anomalyCtx, {
+          type: 'line',
+          data: {
+            labels: ${JSON.stringify(anomalyTrend.labels)},
+            datasets: [{
+              label: 'Anomalies Detected',
+              data: ${JSON.stringify(anomalyTrend.counts)},
+              borderColor: '#ef4444',
+              backgroundColor: 'rgba(239,68,68,0.08)',
+              pointBackgroundColor: '#ef4444',
+              pointRadius: 3,
+              borderWidth: 2,
+              tension: 0.3,
+              fill: true
+            }]
+          },
+          options: {
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: {
+              x: { grid: { display: false }, ticks: { color: '#9aa3b2', maxTicksLimit: 8 } },
+              y: { grid: { color: '#2a2d35' }, ticks: { color: '#9aa3b2', stepSize: 1 }, beginAtZero: true }
+            }
+          }
+        })
+      }
+
+      // 6. P23: Governance Activity from metrics_cron_log (hourly cron snapshots)
+      const cronCtx = document.getElementById('cronActivityChart')
+      if (cronCtx) {
+        const cronLabels = ${JSON.stringify(cronSnaps.labels)}
+        const cronHasData = cronLabels.length > 0
+        new Chart(cronCtx, {
+          type: 'bar',
+          data: {
+            labels: cronHasData ? cronLabels : ['No data — cron not triggered yet'],
+            datasets: cronHasData ? [
+              {
+                label: 'Intents',
+                data: ${JSON.stringify(cronSnaps.intents)},
+                backgroundColor: 'rgba(79,142,247,0.6)',
+                borderColor: '#4f8ef7',
+                borderWidth: 1,
+                borderRadius: 3,
+                borderSkipped: false
+              },
+              {
+                label: 'Executions',
+                data: ${JSON.stringify(cronSnaps.executions)},
+                backgroundColor: 'rgba(34,211,238,0.5)',
+                borderColor: '#22d3ee',
+                borderWidth: 1,
+                borderRadius: 3,
+                borderSkipped: false
+              },
+              {
+                label: 'Anomalies',
+                data: ${JSON.stringify(cronSnaps.anomalies)},
+                backgroundColor: 'rgba(239,68,68,0.5)',
+                borderColor: '#ef4444',
+                borderWidth: 1,
+                borderRadius: 3,
+                borderSkipped: false
+              }
+            ] : [{
+              label: 'Awaiting cron data',
+              data: [0],
+              backgroundColor: 'rgba(245,158,11,0.2)',
+              borderColor: '#f59e0b',
+              borderWidth: 1
+            }]
+          },
+          options: {
+            responsive: true,
+            plugins: { legend: { display: cronHasData, labels: { color: '#9aa3b2', boxWidth: 10, font: { size: 10 } } } },
+            scales: {
+              x: { grid: { display: false }, ticks: { color: '#9aa3b2', maxTicksLimit: 12 } },
               y: { grid: { color: '#2a2d35' }, ticks: { color: '#9aa3b2', stepSize: 1 }, beginAtZero: true }
             }
           }

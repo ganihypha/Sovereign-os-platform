@@ -256,6 +256,119 @@ export async function emailCanonCandidateReady(
   return sendGovernanceEmail(env, 'canon_candidate_ready', recipient, subject, bodyHtml)
 }
 
+// ============================================================
+// P23: emailWeeklyReport() — Weekly governance summary email
+// Sends weekly report: top 5 governance events, execution status, anomaly count
+// Fire-and-catch — non-blocking. Graceful if RESEND_API_KEY not set.
+// ============================================================
+export interface WeeklyReportData {
+  tenantName: string
+  recipient: string
+  intentCount: number
+  executionCount: number
+  anomalyCount: number
+  approvalPending: number
+  topEvents: { event_type: string; count: number }[]
+  reportUrl?: string
+}
+
+export async function emailWeeklyReport(
+  env: EmailServiceEnv,
+  data: WeeklyReportData
+): Promise<void> {
+  if (!env.RESEND_API_KEY) {
+    // Log as skipped (graceful degradation)
+    await logEmailDelivery(
+      env.DB,
+      generateEmailId(),
+      data.recipient,
+      `[Weekly Report] ${data.tenantName}`,
+      'tier3_approval_requested' as GovernanceEventType,
+      'skipped',
+      'none',
+      'RESEND_API_KEY not configured — email not sent',
+      null
+    )
+    return
+  }
+
+  if (!data.recipient || !data.recipient.includes('@')) {
+    return  // No valid recipient
+  }
+
+  const subject = `[Weekly Report] Sovereign OS Platform — ${data.tenantName}`
+
+  const topEventsRows = data.topEvents.length > 0
+    ? data.topEvents.slice(0, 5).map(e => `
+      <tr style="border-bottom:1px solid #1e2130">
+        <td style="padding:8px 12px;font-size:13px;color:#e2e8f0;font-family:monospace">${e.event_type}</td>
+        <td style="padding:8px 12px;font-size:13px;color:#4f8ef7;font-weight:700;text-align:right">${e.count}</td>
+      </tr>`).join('')
+    : `<tr><td colspan="2" style="padding:12px;text-align:center;color:#64748b;font-size:13px">No events this week</td></tr>`
+
+  const bodyHtml = `
+    <p>Here is your <strong>weekly governance summary</strong> for <strong>${data.tenantName}</strong>.</p>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:20px 0">
+      <div style="background:#0d0f14;border-radius:8px;padding:16px;text-align:center">
+        <div style="font-size:28px;font-weight:700;color:#4f8ef7">${data.intentCount}</div>
+        <div style="font-size:11px;color:#64748b;margin-top:4px">Governance Intents</div>
+      </div>
+      <div style="background:#0d0f14;border-radius:8px;padding:16px;text-align:center">
+        <div style="font-size:28px;font-weight:700;color:#22d3ee">${data.executionCount}</div>
+        <div style="font-size:11px;color:#64748b;margin-top:4px">Executions</div>
+      </div>
+      <div style="background:#0d0f14;border-radius:8px;padding:16px;text-align:center">
+        <div style="font-size:28px;font-weight:700;color:${data.anomalyCount > 0 ? '#ef4444' : '#22c55e'}">${data.anomalyCount}</div>
+        <div style="font-size:11px;color:#64748b;margin-top:4px">Anomalies Detected</div>
+      </div>
+      <div style="background:#0d0f14;border-radius:8px;padding:16px;text-align:center">
+        <div style="font-size:28px;font-weight:700;color:${data.approvalPending > 0 ? '#f59e0b' : '#22c55e'}">${data.approvalPending}</div>
+        <div style="font-size:11px;color:#64748b;margin-top:4px">Pending Approvals</div>
+      </div>
+    </div>
+
+    <h3 style="font-size:14px;font-weight:600;color:#e2e8f0;margin:20px 0 8px">Top 5 Governance Events</h3>
+    <table style="width:100%;border-collapse:collapse;background:#0d0f14;border-radius:8px;overflow:hidden">
+      <thead>
+        <tr style="background:#1a1d27">
+          <th style="padding:8px 12px;text-align:left;font-size:11px;color:#64748b">Event Type</th>
+          <th style="padding:8px 12px;text-align:right;font-size:11px;color:#64748b">Count</th>
+        </tr>
+      </thead>
+      <tbody>${topEventsRows}</tbody>
+    </table>
+
+    <p style="margin-top:20px">
+      <a href="${data.reportUrl || 'https://sovereign-os-platform.pages.dev/reports'}"
+         style="display:inline-block;background:#4f8ef7;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:600">
+        View Full Reports →
+      </a>
+    </p>
+    <p style="font-size:12px;color:#64748b;margin-top:16px">
+      This weekly summary covers the past 7 days of platform activity.
+      Manage subscriptions at <a href="https://sovereign-os-platform.pages.dev/reports/subscriptions" style="color:#4f8ef7">reports/subscriptions</a>.
+    </p>
+  `
+
+  const html = buildGovernanceEmailHtml(
+    'tier3_approval_requested' as GovernanceEventType,
+    subject,
+    bodyHtml
+  )
+
+  const emailId = generateEmailId()
+  const { message_id, error } = await sendViaResend(env.RESEND_API_KEY, data.recipient, subject, html)
+  const status = error ? 'failed' : 'sent'
+  const sentAt = status === 'sent' ? new Date().toISOString() : null
+
+  await logEmailDelivery(
+    env.DB, emailId, data.recipient, subject,
+    'tier3_approval_requested' as GovernanceEventType,
+    status, 'resend', error, sentAt
+  )
+}
+
 // ---- P22: Welcome email on operator onboarding step 1 completion ----
 // Fired on step 1 done (fire-and-catch, non-blocking).
 // Uses tenant name / operator name for branding.

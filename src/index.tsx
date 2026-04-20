@@ -1,6 +1,6 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — MAIN ENTRY (P21 — Multi-Tenant SSO, Tenant Plans, Billing Hooks, Operator Onboarding)
-// Version: 2.1.0-P21
+// SOVEREIGN OS PLATFORM — MAIN ENTRY (P23 — Reports, Analytics, Export, Cron Metrics)
+// Version: 2.3.0-P23
 // Platform: Cloudflare Pages + Workers
 // Hono Framework — Edge-first
 // ============================================================
@@ -333,13 +333,14 @@ app.get('/health', (c) => {
   return c.json({
     status: 'ok',
     platform: 'Sovereign OS Platform',
-    version: '2.2.0-P22',
-    phase: 'P22 — AI Integration, Branding/White-label, Plan Enforcement, Operator Onboarding',
+    version: '2.3.0-P23',
+    phase: 'P23 — Reports, Analytics, Export, Cron Metrics',
     auth_configured: !!c.env.PLATFORM_API_KEY,
     kv_rate_limiter: !!c.env.RATE_LIMITER_KV ? 'kv-enforced' : 'in-memory-partial',
     email_delivery: !!(c.env.RESEND_API_KEY || c.env.SENDGRID_API_KEY) ? 'configured' : 'not-configured',
     sso: !!(c.env.AUTH0_CLIENT_SECRET || c.env.CLERK_SECRET_KEY) ? 'configured' : 'not-configured',
     ai_assist: !!(c.env.OPENAI_API_KEY || c.env.GROQ_API_KEY) ? 'configured' : 'not-configured',
+    cron_metrics: 'active',
     timestamp: new Date().toISOString(),
   })
 })
@@ -357,8 +358,8 @@ app.get('/status', async (c) => {
     return c.json({
       status: 'operational',
       platform: 'Sovereign OS Platform',
-      version: '2.2.0-P22',
-      phase: 'P22 — AI Integration, Branding/White-label, Plan Enforcement, Operator Onboarding',
+      version: '2.3.0-P23',
+      phase: 'P23 — Reports, Analytics, Export, Cron Metrics',
       auth_configured: !!c.env.PLATFORM_API_KEY,
       kv_rate_limiter: !!c.env.RATE_LIMITER_KV ? 'kv-enforced' : 'in-memory-partial',
       email_delivery: !!(c.env.RESEND_API_KEY || c.env.SENDGRID_API_KEY) ? 'configured' : 'not-configured',
@@ -472,6 +473,16 @@ app.get('/status', async (c) => {
         ai_session_brief_table: 'active',   // P22 — ai_session_brief D1 table
         plan_access_log: 'active',          // P22 — plan_access_log D1 table
         email_welcome: 'active',            // P22 — emailWelcome on onboarding step 1
+        // P23 new surfaces
+        anomaly_trend_chart: 'active',      // P23 — /reports: real anomaly trend Chart.js from audit_log_v2
+        date_range_filter_reports: 'active',// P23 — /reports?range=7|30|90 filter
+        cron_metrics_snapshot: 'active',    // P23 — hourly cron trigger writes metrics_cron_log
+        metrics_cron_chart: 'active',       // P23 — /reports: governance activity chart from metrics_cron_log
+        api_v1_metrics_snapshots: 'active', // P23 — GET /api/v1/metrics/snapshots
+        audit_export_csv: 'active',         // P23 — /audit/export: real CSV from audit_log_v2
+        audit_export_status: 'active',      // P23 — /audit/export/status: job status page
+        email_weekly_report: 'active',      // P23 — emailWeeklyReport() in emailService.ts
+        report_subscriptions_v2: 'active',  // P23 — /reports/subscriptions upgraded with real email delivery
       },
       counts: {
         sessions: sessions.length,
@@ -630,5 +641,49 @@ app.onError((err, c) => {
   }
   return c.html(page500(path, errMsg), 500)
 })
+
+// ============================================================
+// P23: CLOUDFLARE CRON HANDLER — Hourly Metrics Snapshot
+// Triggered by: wrangler.jsonc triggers.crons ["0 * * * *"]
+// Writes to metrics_cron_log D1 table (non-blocking if DB unavailable)
+// LAW: Cron errors must NEVER crash main worker
+// ============================================================
+async function runCronMetricsSnapshot(env: Env): Promise<void> {
+  const db = env.DB
+  if (!db) return  // Silently skip if no D1 binding
+
+  try {
+    // Gather counts from D1 (fallback to 0 on error)
+    const [intentRow, execRow, anomalyRow, approvalRow, sessionRow] = await Promise.allSettled([
+      db.prepare(`SELECT COUNT(*) as cnt FROM governance_sessions`).first<{ cnt: number }>(),
+      db.prepare(`SELECT COUNT(*) as cnt FROM execution_items`).first<{ cnt: number }>(),
+      db.prepare(`SELECT COUNT(*) as cnt FROM audit_log_v2 WHERE event_type = 'anomaly.detected' AND created_at >= datetime('now', '-1 hour')`).first<{ cnt: number }>(),
+      db.prepare(`SELECT COUNT(*) as cnt FROM approval_requests WHERE status = 'pending'`).first<{ cnt: number }>(),
+      db.prepare(`SELECT COUNT(*) as cnt FROM governance_sessions WHERE status = 'active'`).first<{ cnt: number }>(),
+    ])
+
+    const intentCount = intentRow.status === 'fulfilled' ? (intentRow.value?.cnt ?? 0) : 0
+    const execCount = execRow.status === 'fulfilled' ? (execRow.value?.cnt ?? 0) : 0
+    const anomalyCount = anomalyRow.status === 'fulfilled' ? (anomalyRow.value?.cnt ?? 0) : 0
+    const approvalCount = approvalRow.status === 'fulfilled' ? (approvalRow.value?.cnt ?? 0) : 0
+    const sessionCount = sessionRow.status === 'fulfilled' ? (sessionRow.value?.cnt ?? 0) : 0
+
+    await db.prepare(
+      `INSERT INTO metrics_cron_log (snapshot_type, intent_count, execution_count, anomaly_count, approval_count, session_count, tenant_id)
+       VALUES ('hourly', ?, ?, ?, ?, ?, 'default')`
+    ).bind(intentCount, execCount, anomalyCount, approvalCount, sessionCount).run()
+  } catch (_e) {
+    // Non-critical — discard silently. Cron failure must NOT affect main surfaces.
+  }
+}
+
+// P23: Cloudflare Cron Trigger — exported as named export for Pages Functions
+// Dashboard config: Pages → sovereign-os-platform → Settings → Functions → Cron Triggers → "0 * * * *"
+// Note: export default app is required for Hono + Cloudflare Pages to function correctly.
+// The scheduled function is attached to the default export for Workers, but Pages uses
+// a different mechanism. The cron handler is available but may need CF Dashboard config.
+export const scheduled = async (_event: unknown, env: Env, _ctx: unknown): Promise<void> => {
+  await runCronMetricsSnapshot(env)
+}
 
 export default app

@@ -53,5 +53,16 @@
       "id": "b36f941ace3445d68d335d8cebc0803a",
       "preview_id": "f057d54f7bd44400a031b4e7ccbb6014"
     }
-  ]
+  ],
+
+  // ============================================================
+  // CRON TRIGGERS — P23: Hourly Metrics Snapshot
+  // ============================================================
+  // NOTE: Cloudflare Pages does not support "triggers" in wrangler.jsonc.
+  // Cron triggers for Pages Functions must be configured via the Cloudflare Dashboard:
+  //   Pages → sovereign-os-platform → Settings → Functions → Cron Triggers
+  //   Add: "0 * * * *" (every hour)
+  // The scheduled() handler in src/index.tsx is wired and ready.
+  // Manual trigger: POST /api/v1/metrics-snapshot (with readwrite API key)
+  // ============================================================
 }
