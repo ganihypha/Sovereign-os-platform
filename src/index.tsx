@@ -1,6 +1,6 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — MAIN ENTRY (P23 — Reports, Analytics, Export, Cron Metrics)
-// Version: 2.3.0-P23
+// SOVEREIGN OS PLATFORM — MAIN ENTRY (P24 — Marketplace, Federation, Ecosystem Scaffold)
+// Version: 2.4.0-P24
 // Platform: Cloudflare Pages + Workers
 // Hono Framework — Edge-first
 // ============================================================
@@ -84,6 +84,10 @@ import { createChangelogRoute } from './routes/changelog'
 import { createPlansRoute } from './routes/plans'
 import { createBillingRoute } from './routes/billing'
 
+// Route imports — P24 new surfaces
+import { createWebhooksRoute } from './routes/webhooks'
+import { createEcosystemRoute } from './routes/ecosystem'
+
 export type Env = {
   DB?: D1Database
   RATE_LIMITER_KV?: KVNamespace   // P6: KV-backed distributed rate limiter (optional — falls back to in-memory)
@@ -103,6 +107,7 @@ export type Env = {
   STRIPE_SECRET_KEY?: string      // P21: optional — Stripe billing (never logged/returned)
   STRIPE_WEBHOOK_SECRET?: string  // P21: optional — Stripe HMAC webhook verification
   // P22: GROQ_API_KEY added as AI fallback. STRIPE secrets for billing hooks.
+  WEBHOOK_SECRET?: string         // P24: optional — HMAC-SHA256 secret for inbound webhook verification
 }
 
 const app = new Hono<{ Bindings: Env }>()
@@ -242,6 +247,10 @@ app.route('/changelog', createChangelogRoute())
 app.route('/plans', createPlansRoute())
 app.route('/billing', createBillingRoute())
 
+// P24: Webhooks inbound receiver + Ecosystem developer portal
+app.route('/webhooks', createWebhooksRoute())
+app.route('/ecosystem', createEcosystemRoute())
+
 // P6: Tenant namespace path routing
 // P14: Tenant ABAC enforcement for mutation paths
 app.use('/t/:slug/*', async (c, next) => {
@@ -333,8 +342,8 @@ app.get('/health', (c) => {
   return c.json({
     status: 'ok',
     platform: 'Sovereign OS Platform',
-    version: '2.3.0-P23',
-    phase: 'P23 — Reports, Analytics, Export, Cron Metrics',
+    version: '2.4.0-P24',
+    phase: 'P24 — Marketplace, Federation, Ecosystem Scaffold',
     auth_configured: !!c.env.PLATFORM_API_KEY,
     kv_rate_limiter: !!c.env.RATE_LIMITER_KV ? 'kv-enforced' : 'in-memory-partial',
     email_delivery: !!(c.env.RESEND_API_KEY || c.env.SENDGRID_API_KEY) ? 'configured' : 'not-configured',
@@ -358,8 +367,8 @@ app.get('/status', async (c) => {
     return c.json({
       status: 'operational',
       platform: 'Sovereign OS Platform',
-      version: '2.3.0-P23',
-      phase: 'P23 — Reports, Analytics, Export, Cron Metrics',
+      version: '2.4.0-P24',
+      phase: 'P24 — Marketplace, Federation, Ecosystem Scaffold',
       auth_configured: !!c.env.PLATFORM_API_KEY,
       kv_rate_limiter: !!c.env.RATE_LIMITER_KV ? 'kv-enforced' : 'in-memory-partial',
       email_delivery: !!(c.env.RESEND_API_KEY || c.env.SENDGRID_API_KEY) ? 'configured' : 'not-configured',
@@ -483,6 +492,17 @@ app.get('/status', async (c) => {
         audit_export_status: 'active',      // P23 — /audit/export/status: job status page
         email_weekly_report: 'active',      // P23 — emailWeeklyReport() in emailService.ts
         report_subscriptions_v2: 'active',  // P23 — /reports/subscriptions upgraded with real email delivery
+        // P24 new surfaces
+        marketplace_templates: 'active',    // P24 — real connector_templates library (GitHub, Slack, Jira, Webhook)
+        marketplace_install: 'active',      // P24 — POST /marketplace/:id/install from template
+        marketplace_ratings: 'active',      // P24 — connector_ratings table + POST /marketplace/:id/rate
+        federation_sync_status: 'active',   // P24 — GET /federation/sync-status per-tenant
+        federation_manual_sync: 'active',   // P24 — POST /federation/:id/sync manual trigger
+        webhooks_inbound: 'active',         // P24 — POST /webhooks/inbound/:source receiver
+        webhooks_inbound_log: 'active',     // P24 — GET /webhooks/inbound/log with auth
+        ecosystem_portal: 'active',         // P24 — /ecosystem developer portal landing
+        ecosystem_sdks: 'active',           // P24 — /ecosystem/sdks TypeScript/Python/Go stubs
+        ecosystem_quickstart: 'active',     // P24 — /ecosystem/quickstart step-by-step guide
       },
       counts: {
         sessions: sessions.length,
@@ -497,7 +517,7 @@ app.get('/status', async (c) => {
     return c.json({
       status: 'degraded',
       platform: 'Sovereign OS Platform',
-      version: '2.2.0-P22',
+      version: '2.4.0-P24',
       persistence: 'unknown',
       timestamp: new Date().toISOString(),
     }, 503)

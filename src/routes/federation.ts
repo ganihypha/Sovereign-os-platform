@@ -1,18 +1,22 @@
 // ============================================================
-// SOVEREIGN OS PLATFORM — FEDERATION SURFACE (P8)
-// Cross-tenant intent sharing + federated approval chains
+// SOVEREIGN OS PLATFORM — FEDERATION SURFACE (P8 + P24)
+// Cross-tenant intent sharing + federated approval chains + Read-Only Sync
 //
-// GET /federation       — Federation registry view
-// POST /federation      — Create new federation request
+// GET /federation            — Federation registry view
+// POST /federation           — Create new federation request
 // POST /federation/:id/approve — Approve federation (Tier 2 required)
 // POST /federation/:id/revoke  — Revoke active federation
 //
-// GET /federation/intents        — Federated intent log
-// POST /federation/intents       — Share an intent cross-tenant
+// GET /federation/intents          — Federated intent log
+// POST /federation/intents         — Share an intent cross-tenant
 // POST /federation/intents/:id/approve — Approve shared intent
+//
+// GET /federation/sync-status       — Per-tenant sync status (P24)
+// POST /federation/:id/sync         — Trigger manual read-only sync (P24)
 //
 // AUTH: All mutations require platform auth
 // AUDIT: All mutations written to audit_log_v2
+// P24: federation_sync_log D1 table — never exposes cross-tenant private data
 // ============================================================
 
 import { Hono } from 'hono'
@@ -32,6 +36,59 @@ import {
 } from '../lib/federationService'
 import { writeAuditEvent } from '../lib/auditService'
 import { emitEvent } from '../lib/eventBusService'
+
+// ============================================================
+// P24 HELPERS: Federation Sync Log
+// ============================================================
+async function getFederationSyncStatus(db: D1Database): Promise<any[]> {
+  try {
+    const result = await db.prepare(`
+      SELECT
+        fsl.federation_id,
+        fsl.tenant_id,
+        fsl.sync_type,
+        fsl.status as last_status,
+        fsl.records_synced,
+        fsl.error_message,
+        fsl.synced_at as last_synced_at,
+        COUNT(*) OVER (PARTITION BY fsl.federation_id) as total_syncs
+      FROM federation_sync_log fsl
+      INNER JOIN (
+        SELECT federation_id, MAX(synced_at) as max_synced FROM federation_sync_log GROUP BY federation_id
+      ) latest ON fsl.federation_id = latest.federation_id AND fsl.synced_at = latest.max_synced
+      ORDER BY fsl.synced_at DESC
+      LIMIT 50
+    `).all()
+    return result.results || []
+  } catch { return [] }
+}
+
+async function triggerFederationSync(db: D1Database, federationId: string, tenantId: string): Promise<{ ok: boolean; records_synced: number; error?: string }> {
+  try {
+    // Read-only: count shared intents for this federation (never expose private data)
+    const countResult = await db.prepare(`
+      SELECT COUNT(*) as cnt FROM federated_intents WHERE federation_id = ? AND approval_status = 'approved'
+    `).bind(federationId).first() as any
+    const recordsSynced = countResult?.cnt || 0
+
+    // Log the sync event
+    await db.prepare(`
+      INSERT INTO federation_sync_log (federation_id, tenant_id, sync_type, records_synced, status, synced_at)
+      VALUES (?, ?, 'read-only', ?, 'success', datetime('now'))
+    `).bind(federationId, tenantId || 'default', recordsSynced).run()
+
+    return { ok: true, records_synced: recordsSynced }
+  } catch (e: any) {
+    // Log the failure
+    try {
+      await db.prepare(`
+        INSERT INTO federation_sync_log (federation_id, tenant_id, sync_type, records_synced, status, error_message, synced_at)
+        VALUES (?, ?, 'read-only', 0, 'failed', ?, datetime('now'))
+      `).bind(federationId, tenantId || 'default', e?.message || 'sync-failed').run()
+    } catch { /* best-effort */ }
+    return { ok: false, records_synced: 0, error: e?.message || 'sync-failed' }
+  }
+}
 
 const STATUS_BADGE: Record<string, string> = {
   pending: 'badge-yellow',
@@ -314,6 +371,126 @@ export function createFederationRoute() {
     const id = c.req.param('id')
     await approveFederatedIntent(c.env.DB, id, 'Platform Architect')
     return c.redirect('/federation?ok=intent-approved')
+  })
+
+  // ============================================================
+  // GET /federation/sync-status — Per-tenant sync status (P24)
+  // ============================================================
+  route.get('/sync-status', async (c) => {
+    const isAuth = await isAuthenticated(c, c.env)
+    if (!isAuth) return c.html('<p>Unauthorized</p>', 401)
+    const db = c.env.DB
+    const accept = c.req.header('accept') || ''
+
+    const [syncLogs, federations] = await Promise.all([
+      getFederationSyncStatus(db),
+      listFederations(db),
+    ])
+
+    // JSON response for API calls
+    if (accept.includes('application/json')) {
+      return c.json({ sync_status: syncLogs, federation_count: federations.length })
+    }
+
+    const statusBadge: Record<string, string> = { success: 'badge-green', failed: 'badge-red', partial: 'badge-yellow' }
+
+    const syncRows = syncLogs.map(s => `
+      <tr>
+        <td class="mono small">${s.federation_id}</td>
+        <td class="small">${s.tenant_id}</td>
+        <td class="small">${s.sync_type}</td>
+        <td><span class="badge ${statusBadge[s.last_status] || 'badge-grey'}">${s.last_status}</span></td>
+        <td class="small">${s.records_synced}</td>
+        <td class="small">${s.last_synced_at?.slice(0, 16).replace('T', ' ') || '—'}</td>
+        <td class="small">${s.error_message || '—'}</td>
+        <td>
+          <form method="POST" action="/federation/${s.federation_id}/sync" style="display:inline">
+            <button class="btn btn-sm btn-blue">↻ Sync Now</button>
+          </form>
+        </td>
+      </tr>
+    `).join('')
+
+    // Federations without sync yet
+    const syncedIds = new Set(syncLogs.map(s => s.federation_id))
+    const unsynced = federations.filter(f => !syncedIds.has(f.id) && f.status === 'approved')
+    const unsyncedRows = unsynced.map(f => `
+      <tr>
+        <td class="mono small">${f.id}</td>
+        <td class="small">${f.source_tenant_id}</td>
+        <td class="small">read-only</td>
+        <td><span class="badge badge-grey">never synced</span></td>
+        <td>—</td><td>—</td><td>—</td>
+        <td>
+          <form method="POST" action="/federation/${f.id}/sync" style="display:inline">
+            <button class="btn btn-sm btn-blue">↻ Sync Now</button>
+          </form>
+        </td>
+      </tr>
+    `).join('')
+
+    const content = `
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">🔄 Federation Sync Status</h1>
+          <p class="page-subtitle">P24 — Read-only sync log. Never exposes cross-tenant private governance data.</p>
+        </div>
+        <div class="header-actions">
+          <span class="badge badge-blue">P24</span>
+          <span class="badge badge-green">${syncLogs.length} synced</span>
+          <a href="/federation" class="btn btn-secondary">← Registry</a>
+        </div>
+      </div>
+
+      <div class="stats-row">
+        <div class="stat-card"><div class="stat-num">${federations.filter(f => f.status === 'approved').length}</div><div class="stat-label">Active Federations</div></div>
+        <div class="stat-card"><div class="stat-num">${syncLogs.length}</div><div class="stat-label">Synced Federations</div></div>
+        <div class="stat-card"><div class="stat-num">${syncLogs.filter(s => s.last_status === 'success').length}</div><div class="stat-label">Last Sync OK</div></div>
+        <div class="stat-card"><div class="stat-num">${syncLogs.reduce((sum, s) => sum + (s.records_synced || 0), 0)}</div><div class="stat-label">Total Records Synced</div></div>
+      </div>
+
+      <div class="card">
+        <h3 class="section-title">📊 Sync Status per Federation</h3>
+        <div class="table-container">
+          <table class="data-table">
+            <thead><tr>
+              <th>Federation ID</th><th>Tenant</th><th>Type</th><th>Last Status</th>
+              <th>Records</th><th>Last Synced</th><th>Error</th><th>Action</th>
+            </tr></thead>
+            <tbody>
+              ${syncRows}
+              ${unsyncedRows}
+              ${!syncRows && !unsyncedRows ? '<tr><td colspan="8" class="empty">No active federations to sync yet.</td></tr>' : ''}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `
+    return c.html(layout('Federation Sync Status — P24', content, 'federation'))
+  })
+
+  // ============================================================
+  // POST /federation/:id/sync — Trigger manual read-only sync (P24)
+  // ============================================================
+  route.post('/:id/sync', async (c) => {
+    const isAuth = await isAuthenticated(c, c.env)
+    if (!isAuth) return c.html('<p>Unauthorized</p>', 401)
+
+    const federationId = c.req.param('id')
+    const accept = c.req.header('accept') || ''
+    const body = await c.req.parseBody().catch(() => ({}))
+    const tenantId = String((body as any).tenant_id || 'default').trim()
+
+    const result = await triggerFederationSync(c.env.DB, federationId, tenantId)
+
+    if (accept.includes('application/json')) {
+      return c.json({ federation_id: federationId, ...result })
+    }
+
+    if (!result.ok) {
+      return c.redirect(`/federation/sync-status?error=${encodeURIComponent(result.error || 'sync-failed')}`)
+    }
+    return c.redirect(`/federation/sync-status?ok=synced&records=${result.records_synced}`)
   })
 
   return route
