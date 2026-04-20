@@ -169,6 +169,14 @@ export function createSearchRoute() {
       groups.policy = policies
       groups.connector = connectors
       totalResults = Object.values(groups).reduce((s, a) => s + a.length, 0)
+
+      // P20: Log search to D1 for analytics (non-blocking, fire-and-forget)
+      if (c.env.DB) {
+        const logId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
+        c.env.DB.prepare(
+          `INSERT OR IGNORE INTO search_log (id, query, scope, result_count, created_at) VALUES (?, ?, ?, ?, datetime('now'))`
+        ).bind(logId, q.slice(0, 200), scope, totalResults).run().catch(() => {})
+      }
     }
 
     function renderItem(item: any, type: string): string {
@@ -420,96 +428,165 @@ export function createSearchRoute() {
     })
   })
 
-  // GET /search/analytics — P17: Search analytics (most searched terms)
+  // GET /search/analytics — P17+P20: Search analytics (most searched terms, real D1 data)
   route.get('/analytics', async (c) => {
     const db = c.env.DB
     let topTerms: any[] = []
     let recentSearches: any[] = []
     let totalSearches = 0
+    let uniqueTerms = 0
+    let recentCount = 0
+    let topScopes: any[] = []
 
     if (db) {
       try {
-        const cnt = await db.prepare(`SELECT COUNT(*) as n FROM search_analytics`).first<{ n: number }>()
-        totalSearches = cnt?.n || 0
-
-        const top = await db.prepare(
-          `SELECT query_term, COUNT(*) as count, AVG(result_count) as avg_results
-           FROM search_analytics
-           GROUP BY query_term ORDER BY count DESC LIMIT 20`
-        ).all<any>()
-        topTerms = top.results || []
-
-        const recent = await db.prepare(
-          `SELECT query_term, scope, result_count, searched_at
-           FROM search_analytics ORDER BY searched_at DESC LIMIT 30`
-        ).all<any>()
-        recentSearches = recent.results || []
+        // P20: Query from search_log (new persistent table)
+        const [cntRow, topRow, recentRow, scopeRow, uniqueRow, recentCntRow] = await Promise.all([
+          db.prepare(`SELECT COUNT(*) as n FROM search_log`).first<{ n: number }>().catch(() => ({ n: 0 })),
+          db.prepare(
+            `SELECT query, COUNT(*) as cnt, AVG(result_count) as avg_res, MAX(created_at) as last_seen
+             FROM search_log
+             GROUP BY LOWER(query) ORDER BY cnt DESC LIMIT 20`
+          ).all<any>().catch(() => ({ results: [] })),
+          db.prepare(
+            `SELECT query, scope, result_count, created_at
+             FROM search_log ORDER BY created_at DESC LIMIT 30`
+          ).all<any>().catch(() => ({ results: [] })),
+          db.prepare(
+            `SELECT scope, COUNT(*) as cnt FROM search_log GROUP BY scope ORDER BY cnt DESC LIMIT 8`
+          ).all<any>().catch(() => ({ results: [] })),
+          db.prepare(
+            `SELECT COUNT(DISTINCT LOWER(query)) as n FROM search_log`
+          ).first<{ n: number }>().catch(() => ({ n: 0 })),
+          db.prepare(
+            `SELECT COUNT(*) as n FROM search_log WHERE created_at >= datetime('now', '-24 hours')`
+          ).first<{ n: number }>().catch(() => ({ n: 0 })),
+        ])
+        totalSearches = (cntRow as any)?.n ?? 0
+        topTerms = (topRow as any)?.results ?? []
+        recentSearches = (recentRow as any)?.results ?? []
+        topScopes = (scopeRow as any)?.results ?? []
+        uniqueTerms = (uniqueRow as any)?.n ?? topTerms.length
+        recentCount = (recentCntRow as any)?.n ?? 0
       } catch { /* non-blocking */ }
     }
 
+    const noDbMsg = !db
+      ? `<div style="padding:10px 16px;background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:6px;font-size:12px;color:#f59e0b;margin-bottom:16px">⚠️ D1 not bound — search logging disabled. Run with <code>--d1=sovereign-os-production --local</code> to enable persistence.</div>`
+      : ''
+
     const content = `
-      <div class="page-header" style="margin-bottom:24px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px">
         <div>
           <h1 style="font-size:20px;font-weight:700;color:var(--text);margin:0">📊 Search Analytics</h1>
-          <p style="color:var(--text2);font-size:12px;margin:4px 0 0">P17 — Most searched terms and search activity log</p>
+          <p style="color:var(--text2);font-size:12px;margin:4px 0 0">P17+P20 — Most searched terms and search activity log</p>
         </div>
-        <a href="/search" style="background:var(--bg2);color:var(--text2);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:11px;text-decoration:none">← Search</a>
+        <a href="/search" style="background:var(--bg2);color:var(--text2);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-size:11px;text-decoration:none;display:inline-flex;align-items:center;gap:4px">← Search</a>
       </div>
 
+      ${noDbMsg}
+
+      <!-- KPI Row -->
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:12px;margin-bottom:24px">
         ${[
-          { label: 'Total Searches', val: totalSearches, color: '#4f8ef7' },
-          { label: 'Unique Terms', val: topTerms.length, color: '#a855f7' },
-          { label: 'Recent (last 30)', val: recentSearches.length, color: '#22c55e' },
+          { label: 'Total Searches', val: totalSearches, color: '#4f8ef7', icon: '🔍' },
+          { label: 'Unique Terms', val: uniqueTerms, color: '#a855f7', icon: '✦' },
+          { label: 'Recent 24h', val: recentCount, color: '#22c55e', icon: '⏱' },
         ].map(s => `
-          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px">
-            <div style="font-size:10px;color:var(--text3);text-transform:uppercase;margin-bottom:4px">${s.label}</div>
-            <div style="font-size:22px;font-weight:700;color:${s.color}">${s.val}</div>
+          <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px 16px">
+            <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">${s.icon} ${s.label}</div>
+            <div style="font-size:28px;font-weight:700;color:${s.color};font-family:'JetBrains Mono',monospace;line-height:1">${s.val}</div>
           </div>
         `).join('')}
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px 16px">
+          <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px">🗂 Top Scope</div>
+          <div style="font-size:14px;font-weight:700;color:var(--cyan);font-family:'JetBrains Mono',monospace;line-height:1.4">${topScopes[0]?.scope || '—'}</div>
+          ${topScopes[0] ? `<div style="font-size:10px;color:var(--text3);margin-top:2px">${topScopes[0].cnt} searches</div>` : ''}
+        </div>
       </div>
 
+      <!-- Top terms + Recent grid -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+        <!-- Top Terms -->
         <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
-          <div style="padding:12px 16px;border-bottom:1px solid var(--border);font-weight:600;font-size:13px">Top Searched Terms</div>
+          <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+            <span style="font-weight:600;font-size:13px">🏆 Top Searched Terms</span>
+            ${topTerms.length > 0 ? `<span style="font-size:10px;color:var(--text3)">${topTerms.length} unique</span>` : ''}
+          </div>
           ${topTerms.length === 0
-            ? `<div style="padding:30px;text-align:center;color:var(--text3);font-size:12px">No search data yet. Searches are logged as users search the platform.</div>`
-            : `<table style="width:100%;border-collapse:collapse">
-                <thead><tr style="background:var(--bg3)">
-                  ${['Term','Searches','Avg Results'].map(h => `<th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text3);font-weight:500">${h}</th>`).join('')}
-                </tr></thead>
-                <tbody>
-                  ${topTerms.map(t => `<tr style="border-bottom:1px solid var(--border)">
-                    <td style="padding:8px 12px"><a href="/search?q=${encodeURIComponent(t.query_term)}" style="color:var(--accent);font-size:12px;text-decoration:none">${t.query_term}</a></td>
-                    <td style="padding:8px 12px;font-size:12px;font-weight:600;color:var(--text)">${t.count}</td>
-                    <td style="padding:8px 12px;font-size:11px;color:var(--text3)">${Math.round(t.avg_results || 0)}</td>
-                  </tr>`).join('')}
-                </tbody>
-               </table>`
+            ? `<div style="padding:36px 16px;text-align:center;color:var(--text3);font-size:12px;line-height:1.6">No search data yet.<br>Searches are logged as users search the platform.</div>`
+            : `<div style="overflow-y:auto;max-height:320px">
+                <table style="width:100%;border-collapse:collapse">
+                  <thead><tr style="background:var(--bg3);position:sticky;top:0">
+                    <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text3);font-weight:500">#</th>
+                    <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text3);font-weight:500">Term</th>
+                    <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--text3);font-weight:500">Searches</th>
+                    <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--text3);font-weight:500">Avg Results</th>
+                  </tr></thead>
+                  <tbody>
+                    ${topTerms.map((t, i) => `<tr style="border-bottom:1px solid var(--border)">
+                      <td style="padding:8px 12px;font-size:10px;color:var(--text3)">${i + 1}</td>
+                      <td style="padding:8px 12px">
+                        <a href="/search?q=${encodeURIComponent(t.query)}" style="color:var(--accent);font-size:12px;font-weight:600;text-decoration:none">${t.query}</a>
+                        <div style="font-size:9px;color:var(--text3);margin-top:1px">Last: ${(t.last_seen || '').slice(0, 10)}</div>
+                      </td>
+                      <td style="padding:8px 12px;font-size:12px;font-weight:700;color:var(--text);text-align:right">${t.cnt}</td>
+                      <td style="padding:8px 12px;font-size:11px;color:var(--text3);text-align:right">${Math.round(t.avg_res || 0)}</td>
+                    </tr>`).join('')}
+                  </tbody>
+                </table>
+               </div>`
           }
         </div>
+
+        <!-- Recent Searches -->
         <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden">
-          <div style="padding:12px 16px;border-bottom:1px solid var(--border);font-weight:600;font-size:13px">Recent Searches</div>
+          <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+            <span style="font-weight:600;font-size:13px">🕐 Recent Searches</span>
+            ${recentSearches.length > 0 ? `<span style="font-size:10px;color:var(--text3)">last 30</span>` : ''}
+          </div>
           ${recentSearches.length === 0
-            ? `<div style="padding:30px;text-align:center;color:var(--text3);font-size:12px">No searches logged yet.</div>`
-            : `<table style="width:100%;border-collapse:collapse">
-                <thead><tr style="background:var(--bg3)">
-                  ${['Term','Scope','Results','At'].map(h => `<th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text3);font-weight:500">${h}</th>`).join('')}
-                </tr></thead>
-                <tbody>
-                  ${recentSearches.map(s => `<tr style="border-bottom:1px solid var(--border)">
-                    <td style="padding:8px 12px"><a href="/search?q=${encodeURIComponent(s.query_term)}" style="color:var(--accent);font-size:11px;text-decoration:none">${s.query_term}</a></td>
-                    <td style="padding:8px 12px;font-size:10px;color:var(--text3)">${s.scope}</td>
-                    <td style="padding:8px 12px;font-size:11px;color:var(--text2)">${s.result_count}</td>
-                    <td style="padding:8px 12px;font-size:10px;color:var(--text3)">${(s.searched_at || '').slice(0,16)}</td>
-                  </tr>`).join('')}
-                </tbody>
-               </table>`
+            ? `<div style="padding:36px 16px;text-align:center;color:var(--text3);font-size:12px;line-height:1.6">No searches logged yet.</div>`
+            : `<div style="overflow-y:auto;max-height:320px">
+                <table style="width:100%;border-collapse:collapse">
+                  <thead><tr style="background:var(--bg3);position:sticky;top:0">
+                    <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text3);font-weight:500">Term</th>
+                    <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text3);font-weight:500">Scope</th>
+                    <th style="padding:8px 12px;text-align:right;font-size:10px;color:var(--text3);font-weight:500">Results</th>
+                    <th style="padding:8px 12px;text-align:left;font-size:10px;color:var(--text3);font-weight:500">When</th>
+                  </tr></thead>
+                  <tbody>
+                    ${recentSearches.map(s => `<tr style="border-bottom:1px solid var(--border)">
+                      <td style="padding:8px 12px">
+                        <a href="/search?q=${encodeURIComponent(s.query)}" style="color:var(--accent);font-size:11px;text-decoration:none">${s.query}</a>
+                      </td>
+                      <td style="padding:8px 12px;font-size:10px;color:var(--text3)">${s.scope}</td>
+                      <td style="padding:8px 12px;font-size:11px;color:var(--text2);text-align:right">${s.result_count}</td>
+                      <td style="padding:8px 12px;font-size:9px;color:var(--text3)">${(s.created_at || '').slice(0, 16).replace('T', ' ')}</td>
+                    </tr>`).join('')}
+                  </tbody>
+                </table>
+               </div>`
           }
         </div>
       </div>
+
+      <!-- Scope breakdown -->
+      ${topScopes.length > 0 ? `
+        <div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:16px">
+          <div style="font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:12px">Searches by Scope</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px">
+            ${topScopes.map(sc => `
+              <div style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:6px 12px;font-size:11px">
+                <span style="color:var(--text2);font-weight:600">${sc.scope}</span>
+                <span style="color:var(--text3);margin-left:6px">${sc.cnt}</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      ` : ''}
     `
-    return c.html(layout('Search Analytics — P17', content, '/search', 0, {
+    return c.html(layout('Search Analytics', content, '/search/analytics', 0, {
       breadcrumbs: [{ label: 'Search', href: '/search' }, { label: 'Analytics' }]
     }))
   })

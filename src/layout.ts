@@ -856,7 +856,7 @@ export function layout(title: string, content: string, activePage: string = '', 
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-brand">
       <div class="brand-name">Sovereign OS</div>
-      <div class="brand-sub">Platform v1.8.0-P18</div>
+      <div class="brand-sub">Platform v1.9.0-P20</div>
     </div>
     <div class="nav-filter-wrap">
       <input
@@ -874,9 +874,9 @@ export function layout(title: string, content: string, activePage: string = '', 
     <div class="sidebar-footer">
       <div class="status-indicator">
         <span class="status-dot"></span>
-        <span>Live · P18</span>
+        <span>Live · P20</span>
       </div>
-      <div style="margin-top:3px;font-size:9px">No role collapse · No false verify</div>
+      <div style="margin-top:3px;font-size:9px">P20 · No role collapse · No false verify</div>
     </div>
   </aside>
 

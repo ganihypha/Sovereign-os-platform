@@ -39,16 +39,21 @@ export function createDashboardRoute() {
     let liveAbacDenies = 0
     let recentAuditEvents: any[] = []
     let unreadNotifCount = 0
+    let liveSearchCount = 0  // P20
+    let liveSearchRecent24h = 0  // P20
 
     if (db) {
       try {
-        const [ev, au, no, ab, recentAu, unreadNo] = await Promise.all([
+        const [ev, au, no, ab, recentAu, unreadNo, sc, sc24] = await Promise.all([
           db.prepare(`SELECT COUNT(*) as n FROM events`).first<{ n: number }>(),
           db.prepare(`SELECT COUNT(*) as n FROM audit_log_v2`).first<{ n: number }>(),
           db.prepare(`SELECT COUNT(*) as n FROM notifications`).first<{ n: number }>(),
           db.prepare(`SELECT COUNT(*) as n FROM abac_deny_log`).first<{ n: number }>(),
           db.prepare(`SELECT id, event_type, actor, tenant_id, created_at FROM audit_log_v2 ORDER BY created_at DESC LIMIT 10`).all<any>(),
           db.prepare(`SELECT COUNT(*) as n FROM notifications WHERE read_at IS NULL`).first<{ n: number }>().catch(() => ({ n: 0 })),
+          // P20: search_log counts
+          db.prepare(`SELECT COUNT(*) as n FROM search_log`).first<{ n: number }>().catch(() => ({ n: 0 })),
+          db.prepare(`SELECT COUNT(*) as n FROM search_log WHERE created_at >= datetime('now', '-24 hours')`).first<{ n: number }>().catch(() => ({ n: 0 })),
         ])
         liveEventCount = ev?.n ?? 0
         liveAuditCount = au?.n ?? 0
@@ -56,6 +61,8 @@ export function createDashboardRoute() {
         liveAbacDenies = ab?.n ?? 0
         recentAuditEvents = recentAu.results || []
         unreadNotifCount = unreadNo?.n ?? 0
+        liveSearchCount = (sc as any)?.n ?? 0
+        liveSearchRecent24h = (sc24 as any)?.n ?? 0
       } catch { /* non-blocking */ }
     }
     const continuityAssessment = await assessContinuityHealth(repo)
@@ -223,7 +230,7 @@ export function createDashboardRoute() {
         <a href="/health-dashboard" class="btn btn-ghost btn-sm">🏥 Health</a>
         <span style="margin-left:auto;display:flex;gap:8px;align-items:center">
           <span style="font-size:11px;color:var(--text3)">Storage:</span> ${persistBadge}
-          <span class="badge badge-blue" style="font-size:10px">v1.6.0-P16</span>
+          <span class="badge badge-blue" style="font-size:10px">v1.9.0-P20</span>
         </span>
       </div>
 
@@ -250,6 +257,11 @@ export function createDashboardRoute() {
           <div class="stat-label">ABAC Denials</div>
           <div class="stat-value" style="color:${liveAbacDenies > 0 ? 'var(--red)' : 'var(--green)'}">${liveAbacDenies}</div>
           <div class="stat-sub"><a href="/audit/deny-log" style="color:var(--accent)">Deny Log →</a></div>
+        </div>
+        <div class="stat-card" style="border-left:3px solid var(--emerald)">
+          <div class="stat-label">Search Queries</div>
+          <div class="stat-value" style="color:var(--emerald)">${liveSearchCount}</div>
+          <div class="stat-sub">${liveSearchRecent24h} in last 24h · <a href="/search/analytics" style="color:var(--accent)">Analytics →</a></div>
         </div>
       </div>
 
@@ -314,7 +326,7 @@ export function createDashboardRoute() {
           </div>
           <div style="display:flex;flex-direction:column;gap:8px">
             ${[
-              { label: 'Platform Version', value: '1.6.0-P16', color: 'var(--accent)' },
+              { label: 'Platform Version', value: '1.9.0-P20', color: 'var(--accent)' },
               { label: 'Auth Status', value: isAuth ? 'Authenticated' : 'Guest', color: isAuth ? 'var(--green)' : 'var(--yellow)' },
               { label: 'D1 Database', value: repo.isPersistent ? 'D1 Persistent' : 'In-Memory', color: repo.isPersistent ? 'var(--green)' : 'var(--yellow)' },
               { label: 'Active Sessions', value: String(activeSessions.length), color: activeSessions.length > 0 ? 'var(--green)' : 'var(--text3)' },
