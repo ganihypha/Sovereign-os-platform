@@ -14,10 +14,13 @@ requirements, and a stable canon layer that survives sessions.
 
 | Item | Value |
 |------|-------|
-| **Version** | `2.2.0-P22` |
-| **Phase** | P22 — AI Integration, Branding/White-label, Plan Enforcement, Operator Onboarding |
+| **Version** | `2.4.0-P24` |
+| **Phase** | P24 — Marketplace Templates, Federation Sync, Webhook Inbound, Ecosystem Scaffold |
 | **Status** | ✅ LIVE-VERIFIED |
 | **Production** | https://sovereign-os-platform.pages.dev |
+| **GitHub** | https://github.com/ganihypha/Sovereign-os-platform |
+| **DB** | sovereign-os-production (f6067325) — 97+ tables, 26 migrations |
+| **Git** | 8244bc1 (main) |
 | **GitHub** | https://github.com/ganihypha/Sovereign-os-platform |
 | **Latest Commit** | `2c1b200` |
 | **D1 Database** | `sovereign-os-production` (f6067325-9ea4-44bc-a5fd-e3d19367e657) |
